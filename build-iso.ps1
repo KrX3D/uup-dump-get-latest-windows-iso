@@ -63,26 +63,21 @@ Write-Log "Logs     : $LogDirectory"
 Write-Log "Work     : $WorkDirectory (cleaned up on exit)"
 Write-Log "=================================================="
 
-# ── Version feed ──────────────────────────────────────────────────────────────
-
-Write-Log "Fetching latest version feed..."
-$Versions = Invoke-RestMethod -Method Get -Uri 'https://windows.secant.workers.dev'
-
 $TARGETS = @{
     'windows-10' = @{
-        search   = "windows 10 $($Versions.'windows-10'.Split('.')[0]) amd64"
+        search   = 'windows 10 amd64'
         keep     = @('*windows 10*')
         skip     = @('*team*', '*insider*', '*preview*', '*next*')
         editions = @($Edition)
     }
     'windows-11' = @{
-        search   = "windows 11 $($Versions.'windows-11'.Split('.')[0]) amd64"
+        search   = 'windows 11 amd64'
         keep     = @('*windows 11*')
         skip     = @('*team*', '*insider*', '*preview*', '*next*')
         editions = @($Edition)
     }
     'windows-2022' = @{
-        search   = "microsoft server operating system $($Versions.'windows-2022'.Split('.')[0]) amd64"
+        search   = 'microsoft server operating system amd64'
         keep     = @('*microsoft server operating system*')
         skip     = @('*team*', '*insider*', '*preview*', '*next*')
         editions = @($Edition)
@@ -138,6 +133,7 @@ function Get-UupDumpIso([string]$name, [hashtable]$target) {
           -and (Compare-Object -ExcludeDifferent $target.editions $_.Value.editions.PSObject.Properties.Name).Length `
                 -eq $target.editions.Length
     } `
+    | Sort-Object { [version]$_.Value.build } -Descending `
     | Select-Object -First 1 `
     | ForEach-Object {
         $id = $_.Value.uuid
