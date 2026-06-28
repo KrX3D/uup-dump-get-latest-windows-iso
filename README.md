@@ -37,17 +37,21 @@ docker compose run --rm uup-dump-windows-iso
 | `WINDOWS_TARGET` | `windows-11` | `windows-11`, `windows-10`, or `windows-2022` |
 | `LANGUAGE` | `de-de` | Language pack — `de-de`, `en-us`, `fr-fr`, `es-es`, `it-it`, `pl-pl`, … |
 | `EDITION` | `Professional` | `Professional`, `Home`, `ServerStandard`, `ServerDatacenter` |
+| `LOG_DIR` | _(same as output)_ | Optional separate directory for log files |
 | `PUID` | `99` | UID for output file ownership |
 | `PGID` | `100` | GID for output file ownership |
 
 ## Output
+
+ISOs and metadata are always written to `/output`. Log files go to `LOG_DIR` (defaults to `/output`):
 
 | File | Description |
 |---|---|
 | `{major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso` | The finished ISO |
 | `{major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso.sha256.txt` | SHA-256 checksum |
 | `{major}.{minor}.json` | Build metadata (title, build number, UUP dump ID, …) |
-| `uup-dump.log` | Timestamped run log |
+| `uup-dump.log` | Rolling log — last ~4000 lines across all runs |
+| `YYYY-MM-DD_{build}_{target}_{lang}_{edition}.log` | Per-run log with full output for that run |
 
 Example: `26200.8737.Vibranium-X64-DE-CLIENTPRO_Updated.iso`
 

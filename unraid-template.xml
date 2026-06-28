@@ -43,8 +43,11 @@ Schedule via the User Scripts plugin to check for new builds monthly.</Descripti
   <Environment/>
   <Labels/>
   <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw"
-    Description="Directory where the finished ISO files and log will be saved. Temporary build files (~30 GB) are also stored here under .work/ and cleaned up automatically."
+    Description="Directory where the finished ISO files are saved. Temporary build files (~30 GB) are stored here under .work/ and cleaned up automatically."
     Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
+  <Config Name="Log Directory" Target="LOG_DIR" Default="" Mode=""
+    Description="Directory for uup-dump.log (rolling) and per-run logs named YYYY-MM-DD_build_target_lang_edition.log. Leave empty to use the ISO Output Path."
+    Type="Variable" Display="always" Required="false" Mask="false"></Config>
   <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode=""
     Description="Which Windows version to build: windows-11, windows-10, or windows-2022"
     Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>

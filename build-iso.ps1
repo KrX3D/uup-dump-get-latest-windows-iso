@@ -1,6 +1,7 @@
 #!/usr/bin/env pwsh
 param(
     [string]$OutputDirectory = '/output',
+    [string]$LogDirectory    = '',
     [string]$WindowsTarget   = 'windows-11',
     [string]$Language        = 'de-de',
     [string]$Edition         = 'Professional'
@@ -10,24 +11,31 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
-$WorkDirectory = Join-Path $OutputDirectory '.work'
-$script:buildDirectory = $null
+if (-not $LogDirectory) { $LogDirectory = $OutputDirectory }
 
-$LogFile = Join-Path $OutputDirectory 'uup-dump.log'
+$WorkDirectory         = Join-Path $OutputDirectory '.work'
+$script:buildDirectory = $null
+$script:RollingLog     = Join-Path $LogDirectory 'uup-dump.log'
+$script:RunLogFile     = Join-Path $LogDirectory ('{0}_{1}_{2}_{3}.log' -f
+    (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss'), $WindowsTarget, $Language, $Edition)
+
+New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
+New-Item -ItemType Directory -Force $LogDirectory    | Out-Null
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
     $ts   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC')
     $line = "[$ts] [$Level] $Message"
     Write-Host $line
-    try { Add-Content -Path $LogFile -Value $line -Encoding UTF8 } catch {}
+    try { Add-Content -Path $script:RollingLog -Value $line -Encoding UTF8 } catch {}
+    try { Add-Content -Path $script:RunLogFile -Value $line -Encoding UTF8 } catch {}
 }
 
 function Invoke-LogRotate {
     try {
-        if ((Test-Path $LogFile) -and (Get-Item $LogFile).Length -gt 1MB) {
-            $kept = Get-Content $LogFile -Tail 4000
-            Set-Content $LogFile -Value $kept -Encoding UTF8
+        if ((Test-Path $script:RollingLog) -and (Get-Item $script:RollingLog).Length -gt 1MB) {
+            $kept = Get-Content $script:RollingLog -Tail 4000
+            Set-Content $script:RollingLog -Value $kept -Encoding UTF8
         }
     } catch {}
 }
@@ -43,7 +51,6 @@ trap {
     exit 1
 }
 
-New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 Invoke-LogRotate
 
 Write-Log "=================================================="
@@ -52,6 +59,7 @@ Write-Log "Target   : $WindowsTarget"
 Write-Log "Language : $Language"
 Write-Log "Edition  : $Edition"
 Write-Log "Output   : $OutputDirectory"
+Write-Log "Logs     : $LogDirectory"
 Write-Log "Work     : $WorkDirectory (cleaned up on exit)"
 Write-Log "=================================================="
 
@@ -164,6 +172,14 @@ Write-Log "Latest build: $($iso.title)  [$($iso.build)]"
 
 $buildMajor = $iso.build.Split('.')[0]
 $buildMinor = $iso.build.Split('.')[1]
+
+# Rename per-run log now that the build number is known
+$runLogFinal = Join-Path $LogDirectory ('{0}_{1}.{2}_{3}_{4}_{5}.log' -f
+    (Get-Date).ToString('yyyy-MM-dd'), $buildMajor, $buildMinor, $WindowsTarget, $Language, $Edition)
+if ((Test-Path $script:RunLogFile) -and $script:RunLogFile -ne $runLogFinal) {
+    Move-Item $script:RunLogFile $runLogFinal -Force
+    $script:RunLogFile = $runLogFinal
+}
 
 # ── Check for existing ISO ────────────────────────────────────────────────────
 
@@ -332,11 +348,11 @@ $langCode = switch ($Language.ToLower()) {
 }
 
 $edCode = switch ($Edition) {
-    'Professional'   { 'CLIENTPRO' }
-    'Home'           { 'CLIENTHOME' }
-    'ServerStandard' { 'SERVERSTANDARD' }
+    'Professional'     { 'CLIENTPRO' }
+    'Home'             { 'CLIENTHOME' }
+    'ServerStandard'   { 'SERVERSTANDARD' }
     'ServerDatacenter' { 'SERVERDATACENTER' }
-    default          { $Edition.ToUpper() }
+    default            { $Edition.ToUpper() }
 }
 
 $destName = "$buildMajor.$buildMinor.Vibranium-X64-$langCode-${edCode}_Updated.iso"
