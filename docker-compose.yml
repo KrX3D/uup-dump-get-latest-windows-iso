@@ -1,0 +1,14 @@
+services:
+  uup-dump-windows-iso:
+    image: ghcr.io/krx3d/uup-dump-get-latest-windows-iso:latest
+    container_name: uup-dump-windows-iso
+    volumes:
+      - /path/to/isos:/output          # final ISOs and log go here
+      - /path/to/workdir:/work         # ~30 GB temp space during build
+    environment:
+      - WINDOWS_TARGET=windows-11
+      - LANGUAGE=de-de
+      - EDITION=Professional
+      - PUID=99
+      - PGID=100
+    restart: "no"
