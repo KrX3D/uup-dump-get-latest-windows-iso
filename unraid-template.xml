@@ -27,8 +27,7 @@ On each run the container:[br]
 3. If yes — logs and exits immediately (no unnecessary download)[br]
 4. If no — downloads all Windows Update packages and converts them to an ISO[br][br]
 ISOs are named: {major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso[br][br]
-Disk space required: ~30 GB in the work directory during build, ~6-8 GB for the final ISO.[br]
-Map /work to a fast cache drive and /output to your array share for best performance.[br][br]
+Temporary files (~30 GB during build) are stored inside the container under /output/.work and cleaned up automatically when the ISO is done or if an error occurs.[br][br]
 Schedule via the User Scripts plugin to check for new builds monthly.</Description>
   <Networking>
     <Mode>bridge</Mode>
@@ -40,20 +39,12 @@ Schedule via the User Scripts plugin to check for new builds monthly.</Descripti
       <ContainerDir>/output</ContainerDir>
       <Mode>rw</Mode>
     </Volume>
-    <Volume>
-      <HostDir>/mnt/cache/uup-work</HostDir>
-      <ContainerDir>/work</ContainerDir>
-      <Mode>rw</Mode>
-    </Volume>
   </Data>
   <Environment/>
   <Labels/>
   <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw"
-    Description="Directory where the finished ISO files and log will be saved. Map to an Unraid share."
+    Description="Directory where the finished ISO files and log will be saved. Temporary build files (~30 GB) are also stored here under .work/ and cleaned up automatically."
     Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
-  <Config Name="Work Directory" Target="/work" Default="/mnt/cache/uup-work" Mode="rw"
-    Description="Temporary directory used during download and conversion (~30 GB needed). Map to a fast cache drive. If left unmapped the container uses /output/.work."
-    Type="Path" Display="always" Required="false" Mask="false">/mnt/cache/uup-work</Config>
   <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode=""
     Description="Which Windows version to build: windows-11, windows-10, or windows-2022"
     Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>
@@ -69,7 +60,4 @@ Schedule via the User Scripts plugin to check for new builds monthly.</Descripti
   <Config Name="PGID" Target="PGID" Default="100" Mode=""
     Description="Group ID for file ownership (Unraid users = 100)"
     Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
-  <Config Name="Work Directory (env)" Target="WORK_DIR" Default="" Mode=""
-    Description="Override the work path inside the container. Leave empty to use /work (or /output/.work if /work is not mounted)."
-    Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
 </Container>

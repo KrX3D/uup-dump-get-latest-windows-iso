@@ -9,6 +9,7 @@ Docker container that automatically downloads and creates Windows ISO files usin
 - Supports Windows 10, Windows 11, and Windows Server 2022
 - Configurable language and edition
 - Timestamped log written to `/output/uup-dump.log` with automatic rotation
+- Temporary build files (~30 GB) are stored in `/output/.work` and **cleaned up automatically** — on success and on error
 - Unraid-ready with PUID/PGID support and an included Community Applications template
 
 ## Quick Start
@@ -16,7 +17,6 @@ Docker container that automatically downloads and creates Windows ISO files usin
 ```bash
 docker run --rm \
   -v /path/to/isos:/output \
-  -v /path/to/workdir:/work \
   -e WINDOWS_TARGET=windows-11 \
   -e LANGUAGE=de-de \
   -e EDITION=Professional \
@@ -26,7 +26,7 @@ docker run --rm \
 Or with `docker-compose`:
 
 ```bash
-# edit docker-compose.yml to set your paths, then:
+# edit docker-compose.yml to set your path, then:
 docker compose run --rm uup-dump-windows-iso
 ```
 
@@ -37,8 +37,6 @@ docker compose run --rm uup-dump-windows-iso
 | `WINDOWS_TARGET` | `windows-11` | `windows-11`, `windows-10`, or `windows-2022` |
 | `LANGUAGE` | `de-de` | Language pack — `de-de`, `en-us`, `fr-fr`, `es-es`, `it-it`, `pl-pl`, … |
 | `EDITION` | `Professional` | `Professional`, `Home`, `ServerStandard`, `ServerDatacenter` |
-| `OUTPUT_DIR` | `/output` | Output directory inside the container |
-| `WORK_DIR` | `/work` (or `/output/.work`) | Temporary build directory (~30 GB needed during conversion) |
 | `PUID` | `99` | UID for output file ownership |
 | `PGID` | `100` | GID for output file ownership |
 
@@ -55,12 +53,12 @@ Example: `26200.8737.Vibranium-X64-DE-CLIENTPRO_Updated.iso`
 
 ## Disk Space
 
-| Location | Space needed |
-|---|---|
-| `/work` | ~30 GB during build (cleaned up automatically afterwards) |
-| `/output` | ~6–8 GB per ISO |
+Make sure the volume mapped to `/output` has at least **~35 GB free** before running:
 
-Map `/work` to a fast disk (cache drive on Unraid) to significantly reduce build time.
+| Purpose | Space |
+|---|---|
+| Temporary build files (`/output/.work`) | ~30 GB (deleted automatically when done) |
+| Final ISO | ~6–8 GB |
 
 ## Unraid
 
@@ -71,10 +69,9 @@ Map `/work` to a fast disk (cache drive on Unraid) to significantly reduce build
    ```
    https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/unraid-template.xml
    ```
-3. Set the **ISO Output Path** to your NAS share (e.g. `/mnt/user/isos/windows`).
-4. Set the **Work Directory** to a fast cache path (e.g. `/mnt/cache/uup-work`).
-5. Click **Apply**.
-6. Start the container manually from the Docker tab, or schedule it with the **User Scripts** plugin.
+3. Set the **ISO Output Path** to a share with at least 35 GB free (e.g. `/mnt/user/isos/windows`).
+4. Click **Apply**.
+5. Start the container manually from the Docker tab, or schedule it with the **User Scripts** plugin.
 
 ### Scheduling with User Scripts
 
@@ -84,7 +81,6 @@ Use the [User Scripts](https://forums.unraid.net/topic/48286-plugin-ca-user-scri
 #!/bin/bash
 docker run --rm \
   -v /mnt/user/isos/windows:/output \
-  -v /mnt/cache/uup-work:/work \
   -e WINDOWS_TARGET=windows-11 \
   -e LANGUAGE=de-de \
   -e EDITION=Professional \
@@ -102,7 +98,7 @@ Schedule: `0 2 1 * *` (first of every month at 02:00).
 3. Downloads the UUP conversion package (a zip with download scripts and a converter) from `uupdump.net`.
 4. Configures `ConvertConfig.ini` (`AutoExit=1`, `SkipWinRE=1`, etc.) and enables the standard Store app list.
 5. Runs `uup_download_linux.sh` (bundled in the package) which downloads Windows Update packages via aria2 and converts them to an ISO using wimlib + genisoimage.
-6. Renames the ISO, writes a SHA-256 checksum file and a JSON metadata file, then cleans up the work directory.
+6. Renames the ISO, writes a SHA-256 checksum and JSON metadata file, then removes `/output/.work`.
 
 ## Build the Image Locally
 

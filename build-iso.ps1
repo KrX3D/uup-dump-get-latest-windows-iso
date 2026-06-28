@@ -1,7 +1,6 @@
 #!/usr/bin/env pwsh
 param(
     [string]$OutputDirectory = '/output',
-    [string]$WorkDirectory   = '',
     [string]$WindowsTarget   = 'windows-11',
     [string]$Language        = 'de-de',
     [string]$Edition         = 'Professional'
@@ -11,9 +10,8 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
-if (-not $WorkDirectory) {
-    $WorkDirectory = Join-Path $OutputDirectory '.work'
-}
+$WorkDirectory = Join-Path $OutputDirectory '.work'
+$script:buildDirectory = $null
 
 $LogFile = Join-Path $OutputDirectory 'uup-dump.log'
 
@@ -37,11 +35,15 @@ function Invoke-LogRotate {
 trap {
     Write-Log "FATAL: $_" 'ERROR'
     $_.ScriptStackTrace -split '\r?\n' | ForEach-Object { Write-Log "  $_" 'ERROR' }
+    if ($script:buildDirectory -and (Test-Path $script:buildDirectory)) {
+        Write-Log "Cleaning up work directory after error..."
+        Remove-Item -Force -Recurse $script:buildDirectory -ErrorAction SilentlyContinue
+        Remove-Item -Force "$($script:buildDirectory).zip" -ErrorAction SilentlyContinue
+    }
     exit 1
 }
 
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
-New-Item -ItemType Directory -Force $WorkDirectory   | Out-Null
 Invoke-LogRotate
 
 Write-Log "=================================================="
@@ -50,7 +52,7 @@ Write-Log "Target   : $WindowsTarget"
 Write-Log "Language : $Language"
 Write-Log "Edition  : $Edition"
 Write-Log "Output   : $OutputDirectory"
-Write-Log "Work     : $WorkDirectory"
+Write-Log "Work     : $WorkDirectory (cleaned up on exit)"
 Write-Log "=================================================="
 
 # ── Version feed ──────────────────────────────────────────────────────────────
@@ -179,6 +181,7 @@ Write-Log "No existing ISO for build $($iso.build) — starting download and con
 # ── Prepare build directory ───────────────────────────────────────────────────
 
 $buildDirectory = Join-Path $WorkDirectory "$WindowsTarget-$($iso.build)"
+$script:buildDirectory = $buildDirectory
 
 if (Test-Path $buildDirectory) {
     Write-Log "Removing stale build directory: $buildDirectory"
