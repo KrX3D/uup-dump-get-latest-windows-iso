@@ -13,7 +13,7 @@
   <Category>Tools: Utilities:</Category>
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/unraid-template.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/icon.svg</Icon>
+  <Icon>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/icon.png</Icon>
   <ExtraParams>--restart=no</ExtraParams>
   <PostArgs/>
   <CPUset/>
