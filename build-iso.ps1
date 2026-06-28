@@ -103,44 +103,35 @@ function Get-UupDumpIso([string]$name, [hashtable]$target) {
     $result = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listid.php' `
         -Body @{ search = $target.search }
 
-    $result.response.builds.PSObject.Properties `
+    # Sort newest-first before any further API calls, then check only the 5 newest.
+    # Without this, the script calls listlangs.php for every historical build (100+)
+    # and gets rate-limited / 503 by the UUP dump API.
+    $candidates = $result.response.builds.PSObject.Properties `
     | Where-Object {
         $t = $_.Value.title
         (($target.keep | ForEach-Object { $t -like $_ }) -notcontains $false) `
           -and (($target.skip | ForEach-Object { $t -like $_ }) -notcontains $true)
     } `
-    | ForEach-Object {
-        $id = $_.Value.uuid
-        Write-Log "Checking build $id..."
-        $r = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listlangs.php' -Body @{ id = $id }
-        if ($r.response.updateInfo.build -ne $_.Value.build) {
-            throw "listlangs returned unexpected build for $id"
-        }
-        $_.Value | Add-Member -NotePropertyMembers @{
-            langs = $r.response.langFancyNames
-            info  = $r.response.updateInfo
-        }
-        $editions = if ($_.Value.langs.PSObject.Properties.Name -eq $Language) {
-            $r2 = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listeditions.php' `
-                -Body @{ id = $id; lang = $Language }
-            $r2.response.editionFancyNames
-        } else { [PSCustomObject]@{} }
-        $_.Value | Add-Member -NotePropertyMembers @{ editions = $editions }
-        $_
-    } `
-    | Where-Object {
-        $_.Value.langs.PSObject.Properties.Name -eq $Language `
-          -and (Compare-Object -ExcludeDifferent $target.editions $_.Value.editions.PSObject.Properties.Name).Length `
-                -eq $target.editions.Length
-    } `
     | Sort-Object { [version]$_.Value.build } -Descending `
-    | Select-Object -First 1 `
-    | ForEach-Object {
-        $id = $_.Value.uuid
-        [PSCustomObject]@{
+    | Select-Object -First 5
+
+    foreach ($candidate in $candidates) {
+        $id    = $candidate.Value.uuid
+        $build = $candidate.Value.build
+        Write-Log "Checking build $id ($build)..."
+
+        $r = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listlangs.php' -Body @{ id = $id }
+        if ($r.response.langFancyNames.PSObject.Properties.Name -notcontains $Language) { continue }
+
+        $r2 = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listeditions.php' `
+            -Body @{ id = $id; lang = $Language }
+        $avail = $r2.response.editionFancyNames.PSObject.Properties.Name
+        if ((Compare-Object -ExcludeDifferent $target.editions $avail).Length -ne $target.editions.Length) { continue }
+
+        return [PSCustomObject]@{
             name               = $name
-            title              = $_.Value.title
-            build              = $_.Value.build
+            title              = $candidate.Value.title
+            build              = $build
             id                 = $id
             downloadPackageUrl = 'https://uupdump.net/get.php?' + (New-QueryString @{
                 id      = $id
@@ -149,6 +140,8 @@ function Get-UupDumpIso([string]$name, [hashtable]$target) {
             })
         }
     }
+
+    return $null
 }
 
 # ── Fetch latest build metadata ───────────────────────────────────────────────
