@@ -28,7 +28,7 @@ ENV WINDOWS_TARGET="windows-11" \
     LANGUAGE="de-de" \
     EDITION="Professional" \
     OUTPUT_DIR="/output" \
-    LOG_DIR="" \
+    LOG_DIR="/logs" \
     PUID="99" \
     PGID="100"
 

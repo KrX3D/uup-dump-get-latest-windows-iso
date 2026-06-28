@@ -9,7 +9,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/KrX3D/uup-dump-get-latest-windows-iso/issues</Support>
   <Project>https://github.com/KrX3D/uup-dump-get-latest-windows-iso</Project>
-  <Overview>Downloads and creates the latest Windows ISO using UUP dump. Checks if an ISO with the same build number already exists before downloading — if it does, it logs and exits immediately. Supports Windows 10, Windows 11, and Windows Server 2022.</Overview>
+  <Overview>Downloads and creates the latest Windows ISO using UUP dump. Skips the download if the same build already exists. Supports Windows 10, Windows 11, and Windows Server 2022.</Overview>
   <Category>Tools: Utilities:</Category>
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/unraid-template.xml</TemplateURL>
@@ -20,15 +20,17 @@
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
-  <Description>Downloads and creates Windows ISO files from UUP dump.[br][br]
-On each run the container:[br]
-1. Fetches the latest build number from UUP dump[br]
-2. Checks if an ISO for that build already exists in the output folder[br]
-3. If yes — logs and exits immediately (no unnecessary download)[br]
-4. If no — downloads all Windows Update packages and converts them to an ISO[br][br]
-ISOs are named: {major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso[br][br]
-Temporary files (~30 GB during build) are stored inside the container under /output/.work and cleaned up automatically when the ISO is done or if an error occurs.[br][br]
-Schedule via the User Scripts plugin to check for new builds monthly.</Description>
+  <Description>
+Downloads and creates Windows ISO files from UUP dump.[br][br]
+On each run:[br]
+1. Fetches the latest build number[br]
+2. Checks if an ISO for that build already exists[br]
+3. If yes: logs and exits immediately[br]
+4. If no: downloads all Windows Update packages and converts them to an ISO[br][br]
+ISOs are named {major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso[br][br]
+Temp files (~30 GB) are stored under /output/.work and removed automatically.[br][br]
+Logs: a rolling uup-dump.log plus one per-run log named YYYY-MM-DD_build_target_lang_edition.log are written to the Log Directory.
+  </Description>
   <Networking>
     <Mode>bridge</Mode>
     <Publish/>
@@ -39,28 +41,19 @@ Schedule via the User Scripts plugin to check for new builds monthly.</Descripti
       <ContainerDir>/output</ContainerDir>
       <Mode>rw</Mode>
     </Volume>
+    <Volume>
+      <HostDir>/mnt/user/isos/windows</HostDir>
+      <ContainerDir>/logs</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
   </Data>
   <Environment/>
   <Labels/>
-  <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw"
-    Description="Directory where the finished ISO files are saved. Temporary build files (~30 GB) are stored here under .work/ and cleaned up automatically."
-    Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
-  <Config Name="Log Directory" Target="LOG_DIR" Default="" Mode=""
-    Description="Directory for uup-dump.log (rolling) and per-run logs named YYYY-MM-DD_build_target_lang_edition.log. Leave empty to use the ISO Output Path."
-    Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode=""
-    Description="Which Windows version to build: windows-11, windows-10, or windows-2022"
-    Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>
-  <Config Name="Language" Target="LANGUAGE" Default="de-de" Mode=""
-    Description="Language pack, e.g. de-de, en-us, fr-fr, es-es, it-it, pl-pl"
-    Type="Variable" Display="always" Required="false" Mask="false">de-de</Config>
-  <Config Name="Edition" Target="EDITION" Default="Professional" Mode=""
-    Description="Windows edition: Professional, Home, ServerStandard, ServerDatacenter"
-    Type="Variable" Display="always" Required="false" Mask="false">Professional</Config>
-  <Config Name="PUID" Target="PUID" Default="99" Mode=""
-    Description="User ID for file ownership (Unraid nobody = 99)"
-    Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
-  <Config Name="PGID" Target="PGID" Default="100" Mode=""
-    Description="Group ID for file ownership (Unraid users = 100)"
-    Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw" Description="Where the finished ISO, checksum, and metadata files are saved. Temp build files (~30 GB) are also stored here under .work/ and cleaned up automatically." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
+  <Config Name="Log Directory" Target="/logs" Default="/mnt/user/isos/windows" Mode="rw" Description="Where uup-dump.log and per-run log files are written. Defaults to the same folder as the ISOs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
+  <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode="" Description="Which Windows version to build: windows-11, windows-10, or windows-2022" Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>
+  <Config Name="Language" Target="LANGUAGE" Default="de-de" Mode="" Description="Language pack, e.g. de-de, en-us, fr-fr, es-es, it-it, pl-pl" Type="Variable" Display="always" Required="false" Mask="false">de-de</Config>
+  <Config Name="Edition" Target="EDITION" Default="Professional" Mode="" Description="Windows edition: Professional, Home, ServerStandard, ServerDatacenter" Type="Variable" Display="always" Required="false" Mask="false">Professional</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file ownership (Unraid default: nobody = 99)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file ownership (Unraid default: users = 100)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
 </Container>
