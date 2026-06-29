@@ -9,9 +9,9 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/KrX3D/uup-dump-get-latest-windows-iso/issues</Support>
   <Project>https://github.com/KrX3D/uup-dump-get-latest-windows-iso</Project>
-  <Overview>Downloads and creates the latest Windows ISO using UUP dump. Skips the download if the same build already exists. Supports Windows 10, Windows 11, and Windows Server 2022.</Overview>
+  <Overview>Downloads and creates the latest Windows ISO using UUP dump. Skips the download if the same build already exists. Supports Windows 10, Windows 11, and Windows Server 2022. Optional web UI mode for interactive configuration.</Overview>
   <Category>Tools: Utilities:</Category>
-  <WebUI/>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/unraid-template.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/icon.png</Icon>
   <ExtraParams>--restart=no</ExtraParams>
@@ -22,18 +22,25 @@
   <DonateLink/>
   <Description>
 Downloads and creates Windows ISO files from UUP dump.[br][br]
-On each run:[br]
+[b]Auto mode (default):[/b] Set MODE=auto. On each run:[br]
 1. Fetches the latest build number[br]
 2. Checks if an ISO for that build already exists[br]
 3. If yes: logs and exits immediately[br]
 4. If no: downloads all Windows Update packages and converts them to an ISO[br][br]
+[b]Web UI mode:[/b] Set MODE=web and map port 8080. The container starts a web server at http://[IP]:8080 where you can select the Windows version, build, edition, language, ring, conversion options, and which Store apps to include — then trigger the build from the browser. Settings are saved to /config/settings.json and reused on the next run. Change ExtraParams to --restart=unless-stopped when using this mode.[br][br]
 ISOs are named {major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso[br][br]
-Temp files (~30 GB) are stored under /output/.work and removed automatically.[br][br]
+Temp files (~30 GB) are stored under /work and removed automatically.[br][br]
 Logs: a rolling uup-dump.log plus one per-run log named YYYY-MM-DD_build_target_lang_edition.log are written to the Log Directory.
   </Description>
   <Networking>
     <Mode>bridge</Mode>
-    <Publish/>
+    <Publish>
+      <Port>
+        <HostPort>8080</HostPort>
+        <ContainerPort>8080</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
   </Networking>
   <Data>
     <Volume>
@@ -46,16 +53,25 @@ Logs: a rolling uup-dump.log plus one per-run log named YYYY-MM-DD_build_target_
       <ContainerDir>/logs</ContainerDir>
       <Mode>rw</Mode>
     </Volume>
+    <Volume>
+      <HostDir>/mnt/user/appdata/uup-dump-windows-iso</HostDir>
+      <ContainerDir>/config</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
   </Data>
   <Environment/>
   <Labels/>
-  <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw" Description="Where the finished ISO, checksum, and metadata files are saved. Temp build files (~30 GB) stay inside the container and are deleted automatically." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
+  <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw" Description="Where the finished ISO, checksum, and metadata files are saved." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
   <Config Name="Log Directory" Target="/logs" Default="/mnt/user/isos/windows" Mode="rw" Description="Where uup-dump.log and per-run log files are written. Defaults to the same folder as the ISOs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
-  <Config Name="Work Directory" Target="WORK_DIR" Default="/work" Mode="" Description="Path inside the container used for temp build files (~30 GB). Default /work uses the container internal layer (recommended when Docker data is on your cache SSD). To use an external share instead: add a volume mapping e.g. /mnt/cache/uup-work -&gt; /work-ext in the container settings, then set this to /work-ext." Type="Variable" Display="advanced" Required="false" Mask="false">/work</Config>
-  <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode="" Description="Which Windows version to build: windows-11, windows-10, or windows-2022" Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>
-  <Config Name="Windows Ring" Target="WINDOWS_RING" Default="RETAIL" Mode="" Description="RETAIL=current stable release. DEV=Dev Channel insider. BETA=Beta Channel. CANARY=Canary Channel. RP=Release Preview. ANY=newest build regardless of ring. Each run logs available builds so you can see which rings exist before changing." Type="Variable" Display="always" Required="false" Mask="false">RETAIL</Config>
-  <Config Name="Language" Target="LANGUAGE" Default="de-de" Mode="" Description="Language pack, e.g. de-de, en-us, fr-fr, es-es, it-it, pl-pl" Type="Variable" Display="always" Required="false" Mask="false">de-de</Config>
-  <Config Name="Edition" Target="EDITION" Default="Professional" Mode="" Description="Windows edition: Professional, Home, ServerStandard, ServerDatacenter" Type="Variable" Display="always" Required="false" Mask="false">Professional</Config>
+  <Config Name="Config Directory" Target="/config" Default="/mnt/user/appdata/uup-dump-windows-iso" Mode="rw" Description="Stores settings.json (web UI configuration), current-build.log, and build-status.json. Required for web UI mode to persist settings across restarts." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/uup-dump-windows-iso</Config>
+  <Config Name="Web UI Port" Target="8080" Default="8080" Mode="tcp" Description="Port for the web configuration UI. Only active when MODE=web. Open http://&lt;unraid-ip&gt;:8080 to configure and trigger builds." Type="Port" Display="always" Required="false" Mask="false">8080</Config>
+  <Config Name="Mode" Target="MODE" Default="auto" Mode="" Description="auto = build on container start (current behavior). web = start the configuration web UI instead; set a port mapping for port 8080 and change restart policy to unless-stopped." Type="Variable" Display="always" Required="false" Mask="false">auto</Config>
+  <Config Name="Web UI Port (env)" Target="WEB_PORT" Default="8080" Mode="" Description="HTTP port the web UI listens on inside the container. Change this if you also change the port mapping above." Type="Variable" Display="advanced" Required="false" Mask="false">8080</Config>
+  <Config Name="Work Directory" Target="WORK_DIR" Default="/work" Mode="" Description="Path inside the container used for temp build files (~30 GB). Default /work uses the container internal layer (recommended when Docker data is on your cache SSD). To use an external share instead: add a volume mapping e.g. /mnt/cache/uup-work -&gt; /work-ext, then set this to /work-ext." Type="Variable" Display="advanced" Required="false" Mask="false">/work</Config>
+  <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode="" Description="Which Windows version to build: windows-11, windows-10, or windows-2022. Overridden by web UI settings when MODE=web." Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>
+  <Config Name="Windows Ring" Target="WINDOWS_RING" Default="RETAIL" Mode="" Description="RETAIL=current stable release. DEV=Dev Channel insider. BETA=Beta Channel. CANARY=Canary Channel. RP=Release Preview. ANY=newest build regardless of ring. Overridden by web UI settings when MODE=web." Type="Variable" Display="always" Required="false" Mask="false">RETAIL</Config>
+  <Config Name="Language" Target="LANGUAGE" Default="de-de" Mode="" Description="Language pack, e.g. de-de, en-us, fr-fr, es-es, it-it, pl-pl. Overridden by web UI settings when MODE=web." Type="Variable" Display="always" Required="false" Mask="false">de-de</Config>
+  <Config Name="Edition" Target="EDITION" Default="Professional" Mode="" Description="Windows edition: Professional, Home, ServerStandard, ServerDatacenter. Overridden by web UI settings when MODE=web." Type="Variable" Display="always" Required="false" Mask="false">Professional</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file ownership (Unraid default: nobody = 99)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file ownership (Unraid default: users = 100)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
 </Container>
