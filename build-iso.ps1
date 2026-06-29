@@ -320,9 +320,9 @@ if (-not (Test-Path $linuxScript)) {
 & chmod +x $linuxScript
 Write-Log "Patched uup_download_linux.sh: aria2 retries added"
 
-# Pre-populate converter files from image cache so aria2 skips git.uupdump.net at runtime.
-# The cache is populated at `docker build` time; aria2 with --allow-overwrite=false skips
-# pre-existing files and treats them as already downloaded (no checksum verification).
+# Pre-populate converter files from image cache and remove the aria2 download line.
+# aria2 errorCode=13 fires when a file exists without an .aria2 control file and
+# --allow-overwrite=false is set; replacing the download line avoids this entirely.
 $converterMulti = Join-Path $buildDirectory 'files' 'converter_multi'
 if (Test-Path $converterMulti) {
     $filesDir = Join-Path $buildDirectory 'files'
@@ -330,8 +330,10 @@ if (Test-Path $converterMulti) {
     if ($cacheOk -eq 'yes') {
         & bash -c "cp /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin `"$filesDir/`""
         & bash -c "chmod +x `"$filesDir/convert.sh`" `"$filesDir/convert_ve_plugin`""
-        & bash -c "sed -i '/converter_multi/s/--allow-overwrite=true/--allow-overwrite=false/' `"$linuxScript`""
-        Write-Log "Pre-populated converter files from image cache; aria2 will skip git.uupdump.net"
+        # Replace the aria2 converter download line with a no-op so aria2 never touches
+        # the pre-populated files (avoids errorCode=13 on files without .aria2 control).
+        & bash -c "sed -i '/converter_multi/c\echo Converter files pre-populated from image cache' `"$linuxScript`""
+        Write-Log "Pre-populated converter files from image cache; replaced aria2 converter download"
     } else {
         Write-Log "No converter cache in image — aria2 will attempt git.uupdump.net directly"
     }
