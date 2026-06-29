@@ -234,133 +234,158 @@ New-Item -ItemType Directory -Force $buildDirectory | Out-Null
 
 $zipPath = "$buildDirectory.zip"
 
-# ── Download UUP conversion package ──────────────────────────────────────────
+# ── Download, patch, and run — with retry on URL expiry ──────────────────────
+# UUP download URLs contain a P1= expiry timestamp (~22 min window). On Unraid,
+# CDN stalling means some files exhaust retries before completing. On failure we
+# re-fetch a fresh package (new P1 timestamps) and re-run with --check-integrity
+# so aria2 verifies and skips already-complete files, only retrying the failures.
 
-Write-Log "Downloading UUP package ($($iso.downloadPackageUrl))..."
-Invoke-WebRequest -Method Post -Uri $iso.downloadPackageUrl `
-    -Body @{ autodl = 2; updates = 1; cleanup = 1 } `
-    -OutFile $zipPath
+$maxAttempts = 3
+$totalStart  = Get-Date
 
-Write-Log "Extracting package..."
-Expand-Archive $zipPath $buildDirectory
-Remove-Item $zipPath
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 
-# ── Configure ConvertConfig.ini ───────────────────────────────────────────────
+    # ── Download UUP conversion package (fresh URLs on every attempt) ──────────
 
-$configPath = Join-Path $buildDirectory 'ConvertConfig.ini'
-Set-Content -Encoding ascii -Path $configPath -Value (
-    (Get-Content $configPath) `
-    -replace '^(AutoExit\s*)=.*',   '${1}=1' `
-    -replace '^(CustomList\s*)=.*', '${1}=1' `
-    -replace '^(NetFx3\s*)=.*',     '${1}=1' `
-    -replace '^(ResetBase\s*)=.*',  '${1}=1' `
-    -replace '^(SkipWinRE\s*)=.*',  '${1}=1'
-)
-Write-Log "ConvertConfig.ini: AutoExit=1 CustomList=1 NetFx3=1 ResetBase=1 SkipWinRE=1"
-
-# ── Configure CustomAppsList.txt ──────────────────────────────────────────────
-
-$appsPath = Join-Path $buildDirectory 'CustomAppsList.txt'
-Set-Content -Encoding ascii -Path $appsPath -Value (
-    (Get-Content $appsPath) `
-    -replace '^\s*#\s*(Microsoft\.Windows\.Photos_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsCamera_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsNotepad_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.Paint_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsTerminal_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(MicrosoftWindows\.Client\.WebExperience_cw5n1h2txyewy)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsAlarms_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsCalculator_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsMaps_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.MicrosoftStickyNotes_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.ScreenSketch_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(microsoft\.windowscommunicationsapps_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.People_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsFeedbackHub_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.GetHelp_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.Getstarted_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.Todos_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.PowerAutomateDesktop_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.549981C3F5F10_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(MicrosoftCorporationII\.QuickAssist_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(MicrosoftCorporationII\.MicrosoftFamily_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Clipchamp\.Clipchamp_yxz26nhyzhsrt)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.ApplicationCompatibilityEnhancements_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(MicrosoftWindows\.CrossDevice_cw5n1h2txyewy)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.MicrosoftPCManager_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.YourPhone_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WindowsSoundRecorder_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.StartExperiencesApp_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WidgetsPlatformRuntime_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WebMediaExtensions_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.RawImageExtension_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.HEIFImageExtension_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.HEVCVideoExtension_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.VP9VideoExtensions_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.WebpImageExtension_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.DolbyAudioExtensions_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.AVCEncoderVideoExtension_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.MPEG2VideoExtension_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.AV1VideoExtension_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(Microsoft\.Whiteboard_8wekyb3d8bbwe)', '$1' `
-    -replace '^\s*#\s*(microsoft\.microsoftskydrive_8wekyb3d8bbwe)', '$1'
-)
-Write-Log "CustomAppsList.txt: enabled standard Store apps"
-
-# ── Patch aria2 retry flags in the Linux download script ─────────────────────
-
-$linuxScript = Join-Path $buildDirectory 'uup_download_linux.sh'
-if (-not (Test-Path $linuxScript)) {
-    Write-Log "uup_download_linux.sh not found in package — cannot continue" 'ERROR'
-    exit 1
-}
-
-# Inject aria2 flags into every --no-conf call in the script.
-# --disable-ipv6: Linux/Docker prefers IPv6 by default; Microsoft CDN often
-#   routes IPv6 through a slower path than IPv4 from Unraid networks.
-# -x4 -s4: replace the script's -x16 -s16 (80 simultaneous connections) with
-#   4 per file to avoid per-IP connection limits on Microsoft's CDN edge.
-& bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --disable-ipv6 /g' `"$linuxScript`""
-& bash -c "sed -i 's/-x16/-x4/g; s/-s16/-s4/g' `"$linuxScript`""
-& chmod +x $linuxScript
-Write-Log "Patched uup_download_linux.sh: aria2 retries, IPv4-only, reduced connections"
-
-# Pre-populate converter files from image cache and remove the aria2 download line.
-# aria2 errorCode=13 fires when a file exists without an .aria2 control file and
-# --allow-overwrite=false is set; replacing the download line avoids this entirely.
-$converterMulti = Join-Path $buildDirectory 'files' 'converter_multi'
-if (Test-Path $converterMulti) {
-    $filesDir = Join-Path $buildDirectory 'files'
-    $cacheOk = (& bash -c "test -s /opt/uup-converter/convert.sh && test -s /opt/uup-converter/convert_ve_plugin && echo yes || echo no").Trim()
-    if ($cacheOk -eq 'yes') {
-        & bash -c "cp /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin `"$filesDir/`""
-        & bash -c "chmod +x `"$filesDir/convert.sh`" `"$filesDir/convert_ve_plugin`""
-        # Replace the aria2 converter download line with a no-op so aria2 never touches
-        # the pre-populated files (avoids errorCode=13 on files without .aria2 control).
-        & bash -c "sed -i '/converter_multi/c\echo Converter files pre-populated from image cache' `"$linuxScript`""
-        Write-Log "Pre-populated converter files from image cache; replaced aria2 converter download"
+    if ($attempt -eq 1) {
+        Write-Log "Downloading UUP package ($($iso.downloadPackageUrl))..."
     } else {
-        Write-Log "No converter cache in image — aria2 will attempt git.uupdump.net directly"
+        Write-Log "Retry $attempt/$maxAttempts — fetching fresh package URLs from uupdump.net..."
+    }
+    Invoke-WebRequest -Method Post -Uri $iso.downloadPackageUrl `
+        -Body @{ autodl = 2; updates = 1; cleanup = 1 } `
+        -OutFile $zipPath
+    # -Force: extract into existing dir without deleting UUPs/ download folder
+    Expand-Archive $zipPath $buildDirectory -Force
+    Remove-Item $zipPath
+
+    if ($attempt -eq 1) { Write-Log "Extracting package..." }
+
+    # ── Configure ConvertConfig.ini ────────────────────────────────────────────
+
+    $configPath = Join-Path $buildDirectory 'ConvertConfig.ini'
+    Set-Content -Encoding ascii -Path $configPath -Value (
+        (Get-Content $configPath) `
+        -replace '^(AutoExit\s*)=.*',   '${1}=1' `
+        -replace '^(CustomList\s*)=.*', '${1}=1' `
+        -replace '^(NetFx3\s*)=.*',     '${1}=1' `
+        -replace '^(ResetBase\s*)=.*',  '${1}=1' `
+        -replace '^(SkipWinRE\s*)=.*',  '${1}=1'
+    )
+    if ($attempt -eq 1) { Write-Log "ConvertConfig.ini: AutoExit=1 CustomList=1 NetFx3=1 ResetBase=1 SkipWinRE=1" }
+
+    # ── Configure CustomAppsList.txt ───────────────────────────────────────────
+
+    $appsPath = Join-Path $buildDirectory 'CustomAppsList.txt'
+    Set-Content -Encoding ascii -Path $appsPath -Value (
+        (Get-Content $appsPath) `
+        -replace '^\s*#\s*(Microsoft\.Windows\.Photos_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsCamera_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsNotepad_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.Paint_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsTerminal_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(MicrosoftWindows\.Client\.WebExperience_cw5n1h2txyewy)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsAlarms_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsCalculator_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsMaps_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.MicrosoftStickyNotes_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.ScreenSketch_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(microsoft\.windowscommunicationsapps_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.People_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsFeedbackHub_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.GetHelp_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.Getstarted_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.Todos_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.PowerAutomateDesktop_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.549981C3F5F10_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(MicrosoftCorporationII\.QuickAssist_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(MicrosoftCorporationII\.MicrosoftFamily_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Clipchamp\.Clipchamp_yxz26nhyzhsrt)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.ApplicationCompatibilityEnhancements_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(MicrosoftWindows\.CrossDevice_cw5n1h2txyewy)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.MicrosoftPCManager_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.YourPhone_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WindowsSoundRecorder_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.StartExperiencesApp_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WidgetsPlatformRuntime_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WebMediaExtensions_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.RawImageExtension_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.HEIFImageExtension_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.HEVCVideoExtension_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.VP9VideoExtensions_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.WebpImageExtension_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.DolbyAudioExtensions_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.AVCEncoderVideoExtension_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.MPEG2VideoExtension_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.AV1VideoExtension_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(Microsoft\.Whiteboard_8wekyb3d8bbwe)', '$1' `
+        -replace '^\s*#\s*(microsoft\.microsoftskydrive_8wekyb3d8bbwe)', '$1'
+    )
+    if ($attempt -eq 1) { Write-Log "CustomAppsList.txt: enabled standard Store apps" }
+
+    # ── Patch uup_download_linux.sh ────────────────────────────────────────────
+
+    $linuxScript = Join-Path $buildDirectory 'uup_download_linux.sh'
+    if (-not (Test-Path $linuxScript)) {
+        Write-Log "uup_download_linux.sh not found in package — cannot continue" 'ERROR'
+        exit 1
+    }
+
+    # On retry add --check-integrity=true: aria2 hashes each existing file against
+    # the checksum in the input script and skips files that already match, so only
+    # the failed files (with now-expired URLs) get re-downloaded with fresh URLs.
+    $ciFlag = if ($attempt -gt 1) { '--check-integrity=true ' } else { '' }
+    & bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --disable-ipv6 ${ciFlag}/g' `"$linuxScript`""
+    & bash -c "sed -i 's/-x16/-x4/g; s/-s16/-s4/g' `"$linuxScript`""
+    & chmod +x $linuxScript
+    $patchSuffix = if ($attempt -gt 1) { ', check-integrity (skips complete files)' } else { '' }
+    Write-Log "Patched uup_download_linux.sh: aria2 retries, IPv4-only, reduced connections$patchSuffix"
+
+    # ── Pre-populate converter files ───────────────────────────────────────────
+
+    $converterMulti = Join-Path $buildDirectory 'files' 'converter_multi'
+    if (Test-Path $converterMulti) {
+        $filesDir = Join-Path $buildDirectory 'files'
+        $cacheOk = (& bash -c "test -s /opt/uup-converter/convert.sh && test -s /opt/uup-converter/convert_ve_plugin && echo yes || echo no").Trim()
+        if ($cacheOk -eq 'yes') {
+            & bash -c "cp /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin `"$filesDir/`""
+            & bash -c "chmod +x `"$filesDir/convert.sh`" `"$filesDir/convert_ve_plugin`""
+            & bash -c "sed -i '/converter_multi/c\echo Converter files pre-populated from image cache' `"$linuxScript`""
+            if ($attempt -eq 1) {
+                Write-Log "Pre-populated converter files from image cache; replaced aria2 converter download"
+            }
+        } else {
+            if ($attempt -eq 1) {
+                Write-Log "No converter cache in image — aria2 will attempt git.uupdump.net directly"
+            }
+        }
+    }
+
+    # ── Run download and conversion ────────────────────────────────────────────
+
+    $startMsg = if ($attempt -eq 1) {
+        'Starting download and ISO conversion (this may take 1-3 hours)...'
+    } else {
+        "Retry $attempt/$maxAttempts — downloading remaining files with fresh URLs..."
+    }
+    Write-Log $startMsg
+
+    Push-Location $buildDirectory
+    try {
+        # Tee-Object writes bash output to both Docker stdout and the per-run log file
+        & bash ./uup_download_linux.sh 2>&1 | Tee-Object -Append -FilePath $script:RunLogFile
+        if ($LASTEXITCODE -eq 0) { break }
+        if ($attempt -lt $maxAttempts) {
+            Write-Log "Attempt $attempt failed — will retry with fresh URLs" 'ERROR'
+        } else {
+            throw "uup_download_linux.sh exited with code $LASTEXITCODE after $maxAttempts attempts"
+        }
+    } finally {
+        Pop-Location
     }
 }
 
-# ── Run download and conversion ───────────────────────────────────────────────
-
-Write-Log "Starting download and ISO conversion (this may take 1-3 hours)..."
-$startTime = Get-Date
-
-Push-Location $buildDirectory
-try {
-    # Tee-Object writes bash output to both Docker stdout and the per-run log file
-    & bash ./uup_download_linux.sh 2>&1 | Tee-Object -Append -FilePath $script:RunLogFile
-    if ($LASTEXITCODE -ne 0) {
-        throw "uup_download_linux.sh exited with code $LASTEXITCODE"
-    }
-} finally {
-    Pop-Location
-}
-
-$elapsed = (Get-Date) - $startTime
+$elapsed = (Get-Date) - $totalStart
 Write-Log "Completed in $([int]$elapsed.TotalMinutes)m $($elapsed.Seconds)s"
 
 # ── Locate the created ISO ────────────────────────────────────────────────────
