@@ -321,13 +321,15 @@ if (-not (Test-Path $linuxScript)) {
 # Stage 1: full-path replacement (URL stored as a literal string)
 & bash -c "sed -i 's|git\.uupdump\.net/uup-dump/converter/raw/commit|raw.githubusercontent.com/uup-dump/converter|g' `"$linuxScript`""
 
-# Check if any git.uupdump.net refs remain (URL may be split across variable + path)
-$remaining = (& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null || echo 0").Trim()
-if ([int]$remaining -gt 0) {
+# Check if any git.uupdump.net refs remain (URL may be split across variable + path).
+# grep -c always prints a number (even "0" on no match, exit 1), so use "; exit 0"
+# to avoid doubling output via "|| echo 0" which would give PowerShell an Object[].
+$remaining = [int][string](& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null; exit 0")
+if ($remaining -gt 0) {
     # Stage 2: replace the domain separately, then remove the Gitea /raw/commit path segment
     & bash -c "sed -i 's|git\.uupdump\.net|raw.githubusercontent.com|g' `"$linuxScript`""
     & bash -c "sed -i 's|/uup-dump/converter/raw/commit/|/uup-dump/converter/|g' `"$linuxScript`""
-    $remaining = (& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null || echo 0").Trim()
+    $remaining = [int][string](& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null; exit 0")
 }
 
 & chmod +x $linuxScript
@@ -358,7 +360,7 @@ if ($commitHash -match '^[a-f0-9]{40}$') {
     }
 }
 
-if ([int]$remaining -gt 0) {
+if ($remaining -gt 0) {
     Write-Log "Patched uup_download_linux.sh: aria2 retries; git.uupdump.net still present ($remaining refs) — relying on pre-download" 'WARN'
 } else {
     Write-Log "Patched uup_download_linux.sh: aria2 retries + converter URLs → GitHub CDN"
