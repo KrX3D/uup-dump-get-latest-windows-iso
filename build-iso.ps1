@@ -336,7 +336,6 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     # the failed files (with now-expired URLs) get re-downloaded with fresh URLs.
     $ciFlag = if ($attempt -gt 1) { '--check-integrity=true ' } else { '' }
     & bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --disable-ipv6 ${ciFlag}/g' `"$linuxScript`""
-    & bash -c "sed -i 's/-x16/-x4/g; s/-s16/-s4/g' `"$linuxScript`""
 
     # Inject "Total files to download: N" right before the main download starts.
     # The aria2 input script (aria2_script.PID.txt) has already been downloaded by
@@ -351,7 +350,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 
     & chmod +x $linuxScript
     $patchSuffix = if ($attempt -gt 1) { ', check-integrity (skips complete files)' } else { '' }
-    Write-Log "Patched uup_download_linux.sh: aria2 retries, IPv4-only, reduced connections$patchSuffix"
+    Write-Log "Patched uup_download_linux.sh: aria2 retries, IPv4-only$patchSuffix"
 
     # ── Pre-populate converter files ───────────────────────────────────────────
 
