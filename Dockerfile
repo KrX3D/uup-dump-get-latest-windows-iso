@@ -25,6 +25,7 @@ RUN chmod +x /entrypoint.sh /build-iso.ps1
 VOLUME ["/output"]
 
 ENV WINDOWS_TARGET="windows-11" \
+    WINDOWS_RING="RETAIL" \
     LANGUAGE="de-de" \
     EDITION="Professional" \
     OUTPUT_DIR="/output" \

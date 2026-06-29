@@ -15,6 +15,7 @@ if [ "$(id -u)" = "0" ]; then
         -OutputDirectory "$OUTPUT_DIR" \
         -LogDirectory "$LOG_DIR" \
         -WindowsTarget "${WINDOWS_TARGET:-windows-11}" \
+        -Ring "${WINDOWS_RING:-RETAIL}" \
         -Language "${LANGUAGE:-de-de}" \
         -Edition "${EDITION:-Professional}"
 else
@@ -23,6 +24,7 @@ else
         -OutputDirectory "$OUTPUT_DIR" \
         -LogDirectory "$LOG_DIR" \
         -WindowsTarget "${WINDOWS_TARGET:-windows-11}" \
+        -Ring "${WINDOWS_RING:-RETAIL}" \
         -Language "${LANGUAGE:-de-de}" \
         -Edition "${EDITION:-Professional}"
 fi

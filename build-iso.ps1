@@ -4,7 +4,8 @@ param(
     [string]$LogDirectory    = '',
     [string]$WindowsTarget   = 'windows-11',
     [string]$Language        = 'de-de',
-    [string]$Edition         = 'Professional'
+    [string]$Edition         = 'Professional',
+    [string]$Ring            = 'RETAIL'
 )
 
 Set-StrictMode -Version Latest
@@ -57,9 +58,15 @@ trap {
 
 Invoke-LogRotate
 
+# Blank-line separator between runs in the rolling log
+if (Test-Path $script:RollingLog) {
+    try { Add-Content -Path $script:RollingLog -Value "`n" -Encoding UTF8 } catch {}
+}
+
 Write-Log "=================================================="
 Write-Log "UUP Dump Windows ISO Builder"
 Write-Log "Target   : $WindowsTarget"
+Write-Log "Ring     : $Ring"
 Write-Log "Language : $Language"
 Write-Log "Edition  : $Edition"
 Write-Log "Output   : $OutputDirectory"
@@ -101,35 +108,51 @@ function New-QueryString([hashtable]$params) {
     }) -join '&'
 }
 
-function Get-UupDumpIso([string]$name, [hashtable]$target) {
-    Write-Log "Searching UUP dump: '$($target.search)'"
+function Get-UupDumpIso([string]$name, [hashtable]$target, [string]$wantRing) {
+    Write-Log "Searching UUP dump: '$($target.search)' | Ring: $wantRing"
 
     $result = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listid.php' `
         -Body @{ search = $target.search }
 
-    # Sort newest-first before any further API calls, then check only the 5 newest.
-    # Without this, the script calls listlangs.php for every historical build (100+)
-    # and gets rate-limited / 503 by the UUP dump API.
-    $candidates = $result.response.builds.PSObject.Properties `
+    # Filter by title patterns and sort newest-first.
+    # listid.php includes a 'ring' field on each build, so we can filter and log
+    # rings without any extra API calls.
+    $allBuilds = $result.response.builds.PSObject.Properties `
     | Where-Object {
         $t = $_.Value.title
         (($target.keep | ForEach-Object { $t -like $_ }) -notcontains $false) `
           -and (($target.skip | ForEach-Object { $t -like $_ }) -notcontains $true)
     } `
-    | Sort-Object { [version]$_.Value.build } -Descending `
-    | Select-Object -First 10
+    | Sort-Object { [version]$_.Value.build } -Descending
+
+    # Log a discovery table so the user can see which rings/builds are available
+    Write-Log "Available builds (newest 15, set WINDOWS_RING to choose a channel):"
+    $allBuilds | Select-Object -First 15 | ForEach-Object {
+        $r = if ($_.Value.PSObject.Properties.Name -contains 'ring' -and $_.Value.ring) { $_.Value.ring } else { '?' }
+        Write-Log ("    {0,-15} {1,-12} {2}" -f $_.Value.build, $r, $_.Value.title)
+    }
+
+    # Select candidates matching the requested ring (or any, when wantRing='ANY').
+    # Builds without ring info in listid are included as fallback candidates.
+    $candidates = $allBuilds | Where-Object {
+        if ($wantRing -eq 'ANY') { return $true }
+        $r = if ($_.Value.PSObject.Properties.Name -contains 'ring' -and $_.Value.ring) { $_.Value.ring } else { $null }
+        -not $r -or $r -eq $wantRing
+    } | Select-Object -First 5
 
     foreach ($candidate in $candidates) {
-        $id    = $candidate.Value.uuid
-        $build = $candidate.Value.build
-        Write-Log "Checking build $id ($build)..."
+        $id        = $candidate.Value.uuid
+        $build     = $candidate.Value.build
+        $buildRing = if ($candidate.Value.PSObject.Properties.Name -contains 'ring' -and $candidate.Value.ring) {
+            $candidate.Value.ring } else { '?' }
+        Write-Log "Checking build $id ($build, ring: $buildRing)..."
 
         $r = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listlangs.php' -Body @{ id = $id }
 
-        # Skip insider/preview builds — only accept RETAIL ring
-        $ring = $r.response.updateInfo.ring
-        if ($ring -and $ring -ne 'RETAIL') {
-            Write-Log "  Skipping $build (ring: $ring)"
+        # Double-check ring from listlangs in case listid didn't have it
+        $confirmedRing = if ($r.response.updateInfo.ring) { $r.response.updateInfo.ring } else { $buildRing }
+        if ($wantRing -ne 'ANY' -and $confirmedRing -ne '?' -and $confirmedRing -ne $wantRing) {
+            Write-Log "  Skipping (ring confirmed: $confirmedRing)"
             continue
         }
 
@@ -144,6 +167,7 @@ function Get-UupDumpIso([string]$name, [hashtable]$target) {
             name               = $name
             title              = $candidate.Value.title
             build              = $build
+            ring               = $confirmedRing
             id                 = $id
             downloadPackageUrl = 'https://uupdump.net/get.php?' + (New-QueryString @{
                 id      = $id
@@ -158,7 +182,7 @@ function Get-UupDumpIso([string]$name, [hashtable]$target) {
 
 # ── Fetch latest build metadata ───────────────────────────────────────────────
 
-$iso = Get-UupDumpIso $WindowsTarget $TARGETS.$WindowsTarget
+$iso = Get-UupDumpIso $WindowsTarget $TARGETS.$WindowsTarget $Ring
 
 if (-not $iso) {
     Write-Log "No matching build found for $WindowsTarget ($Language / $Edition)" 'ERROR'
@@ -169,7 +193,7 @@ if ($iso.build -notmatch '^\d+\.\d+$') {
     throw "Unexpected build number format: $($iso.build)"
 }
 
-Write-Log "Latest build: $($iso.title)  [$($iso.build)]"
+Write-Log "Latest build: $($iso.title)  [$($iso.build)]  (ring: $($iso.ring))"
 
 $buildMajor = $iso.build.Split('.')[0]
 $buildMinor = $iso.build.Split('.')[1]
@@ -286,10 +310,10 @@ Write-Log "CustomAppsList.txt: enabled standard Store apps"
 $linuxScript = Join-Path $buildDirectory 'uup_download_linux.sh'
 if (Test-Path $linuxScript) {
     $content = [System.IO.File]::ReadAllText($linuxScript)
-    $patched = $content -replace '--no-conf\b', '--no-conf --timeout=30 --max-tries=10 --retry-wait=5'
+    $patched = $content -replace '--no-conf\b', '--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --retry-on-http-error=429,500,502,503,504,522,524'
     [System.IO.File]::WriteAllText($linuxScript, $patched)
     & chmod +x $linuxScript
-    Write-Log "Patched uup_download_linux.sh: --timeout=30 --max-tries=10 --retry-wait=5"
+    Write-Log "Patched uup_download_linux.sh: --timeout=60 --max-tries=20 --retry-wait=15 --retry-on-http-error=429,5xx,522"
 } else {
     Write-Log "uup_download_linux.sh not found in package — cannot continue" 'ERROR'
     exit 1
@@ -302,7 +326,8 @@ $startTime = Get-Date
 
 Push-Location $buildDirectory
 try {
-    & bash ./uup_download_linux.sh
+    # Tee-Object writes bash output to both Docker stdout and the per-run log file
+    & bash ./uup_download_linux.sh 2>&1 | Tee-Object -Append -FilePath $script:RunLogFile
     if ($LASTEXITCODE -ne 0) {
         throw "uup_download_linux.sh exited with code $LASTEXITCODE"
     }
