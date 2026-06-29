@@ -315,13 +315,15 @@ if (-not (Test-Path $linuxScript)) {
     exit 1
 }
 
-# Inject aria2 retry/timeout flags into every --no-conf call in the script.
-# --timeout=60 covers both connection and data-transfer stalls. Do NOT add
-# --lowest-speed-limit here: Microsoft's CDN delivers in bursts with pauses;
-# a speed limit kills those connections prematurely and wastes retry attempts.
-& bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 /g' `"$linuxScript`""
+# Inject aria2 flags into every --no-conf call in the script.
+# --disable-ipv6: Linux/Docker prefers IPv6 by default; Microsoft CDN often
+#   routes IPv6 through a slower path than IPv4 from Unraid networks.
+# -x4 -s4: replace the script's -x16 -s16 (80 simultaneous connections) with
+#   4 per file to avoid per-IP connection limits on Microsoft's CDN edge.
+& bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --disable-ipv6 /g' `"$linuxScript`""
+& bash -c "sed -i 's/-x16/-x4/g; s/-s16/-s4/g' `"$linuxScript`""
 & chmod +x $linuxScript
-Write-Log "Patched uup_download_linux.sh: aria2 retries added"
+Write-Log "Patched uup_download_linux.sh: aria2 retries, IPv4-only, reduced connections"
 
 # Pre-populate converter files from image cache and remove the aria2 download line.
 # aria2 errorCode=13 fires when a file exists without an .aria2 control file and
