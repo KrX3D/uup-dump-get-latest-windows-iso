@@ -63,7 +63,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore: update bundled UUP converter to ${{ steps.check.outputs.latest }}"
-          branch: update/uup-converter-${{ steps.check.outputs.latest }}
+          branch: update/uup-converter
           delete-branch: true
           title: "Update bundled UUP converter"
           body: |
