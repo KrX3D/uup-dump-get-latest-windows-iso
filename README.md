@@ -7,9 +7,9 @@ Docker container that automatically downloads and creates Windows ISO files usin
 - Fetches the latest Windows build from UUP dump on every run
 - **Skips the download entirely** if an ISO with the same build number already exists
 - Supports Windows 10, Windows 11, and Windows Server 2022
-- Configurable language and edition
-- Timestamped log written to `/output/uup-dump.log` with automatic rotation
-- Temporary build files (~30 GB) are stored in `/output/.work` and **cleaned up automatically** — on success and on error
+- Configurable update ring (stable, insider, canary, …), language, and edition
+- Rolling `uup-dump.log` plus a timestamped per-run log, both in a configurable log directory
+- Temporary build files (~30 GB) are stored under `/output/.work` and **cleaned up automatically** — on success and on error
 - Unraid-ready with PUID/PGID support and an included Community Applications template
 
 ## Quick Start
@@ -35,11 +35,27 @@ docker compose run --rm uup-dump-windows-iso
 | Variable | Default | Description |
 |---|---|---|
 | `WINDOWS_TARGET` | `windows-11` | `windows-11`, `windows-10`, or `windows-2022` |
+| `WINDOWS_RING` | `RETAIL` | Update ring/channel — see table below |
 | `LANGUAGE` | `de-de` | Language pack — `de-de`, `en-us`, `fr-fr`, `es-es`, `it-it`, `pl-pl`, … |
 | `EDITION` | `Professional` | `Professional`, `Home`, `ServerStandard`, `ServerDatacenter` |
-| `LOG_DIR` | _(same as output)_ | Optional separate directory for log files |
-| `PUID` | `99` | UID for output file ownership |
-| `PGID` | `100` | GID for output file ownership |
+| `LOG_DIR` | _(same as output)_ | Separate directory for log files (container path `/logs`) |
+| `PUID` | `99` | UID for output file ownership (Unraid default: `99` = nobody) |
+| `PGID` | `100` | GID for output file ownership (Unraid default: `100` = users) |
+
+### WINDOWS_RING
+
+Controls which Windows Update ring is selected when multiple builds are available.
+
+| Value | Description |
+|---|---|
+| `RETAIL` | Current stable / general availability release **(default)** |
+| `RP` | Release Preview — near-final builds, typically a few weeks ahead of RETAIL |
+| `BETA` | Beta Channel insider builds — new features under active testing |
+| `DEV` | Dev Channel insider builds — newer features, less stable than BETA |
+| `CANARY` | Canary Channel — bleeding-edge, may be highly unstable |
+| `ANY` | The absolute newest build regardless of ring |
+
+Every run logs the 15 newest matching builds so you can see what rings and version numbers are currently available before changing this setting.
 
 ## Output
 
@@ -50,8 +66,8 @@ ISOs and metadata are always written to `/output`. Log files go to `LOG_DIR` (de
 | `{major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso` | The finished ISO |
 | `{major}.{minor}.Vibranium-X64-{LANG}-{EDITION}_Updated.iso.sha256.txt` | SHA-256 checksum |
 | `{major}.{minor}.json` | Build metadata (title, build number, UUP dump ID, …) |
-| `uup-dump.log` | Rolling log — last ~4000 lines across all runs |
-| `YYYY-MM-DD_{build}_{target}_{lang}_{edition}.log` | Per-run log with full output for that run |
+| `uup-dump.log` | Rolling log — last ~4000 lines across all runs, blank-line separated between runs |
+| `YYYY-MM-DD_HH-mm-ss_{build}_{target}_{lang}_{edition}.log` | Per-run log including full aria2/converter output |
 
 Example: `26200.8737.Vibranium-X64-DE-CLIENTPRO_Updated.iso`
 

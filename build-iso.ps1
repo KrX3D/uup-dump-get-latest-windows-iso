@@ -18,8 +18,9 @@ $script:WorkDirectory  = Join-Path $OutputDirectory '.work'
 $WorkDirectory         = $script:WorkDirectory
 $script:buildDirectory = $null
 $script:RollingLog     = Join-Path $LogDirectory 'uup-dump.log'
+$script:RunStartTime   = (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss')
 $script:RunLogFile     = Join-Path $LogDirectory ('{0}_{1}_{2}_{3}.log' -f
-    (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss'), $WindowsTarget, $Language, $Edition)
+    $script:RunStartTime, $WindowsTarget, $Language, $Edition)
 
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 New-Item -ItemType Directory -Force $LogDirectory    | Out-Null
@@ -125,12 +126,12 @@ function Get-UupDumpIso([string]$name, [hashtable]$target, [string]$wantRing) {
     } `
     | Sort-Object { [version]$_.Value.build } -Descending
 
-    # Log a discovery table so the user can see which rings/builds are available
-    Write-Log "Available builds (newest 15, set WINDOWS_RING to choose a channel):"
+    # Log a discovery table (ring not available until listlangs is called per-build)
+    Write-Log "Available builds (newest 15) — rings shown during per-build checks below:"
     $allBuilds | Select-Object -First 15 | ForEach-Object {
-        $r = if ($_.Value.PSObject.Properties.Name -contains 'ring' -and $_.Value.ring) { $_.Value.ring } else { '?' }
-        Write-Log ("    {0,-15} {1,-12} {2}" -f $_.Value.build, $r, $_.Value.title)
+        Write-Log ("    {0,-15} {1}" -f $_.Value.build, $_.Value.title)
     }
+    Write-Log "Set WINDOWS_RING to RETAIL, DEV, BETA, CANARY, RP, or ANY."
 
     # Select candidates matching the requested ring (or any, when wantRing='ANY').
     # Builds without ring info in listid are included as fallback candidates.
@@ -200,7 +201,7 @@ $buildMinor = $iso.build.Split('.')[1]
 
 # Rename per-run log now that the build number is known
 $runLogFinal = Join-Path $LogDirectory ('{0}_{1}.{2}_{3}_{4}_{5}.log' -f
-    (Get-Date).ToString('yyyy-MM-dd'), $buildMajor, $buildMinor, $WindowsTarget, $Language, $Edition)
+    $script:RunStartTime, $buildMajor, $buildMinor, $WindowsTarget, $Language, $Edition)
 if ((Test-Path $script:RunLogFile) -and $script:RunLogFile -ne $runLogFinal) {
     Move-Item $script:RunLogFile $runLogFinal -Force
     $script:RunLogFile = $runLogFinal
@@ -310,10 +311,10 @@ Write-Log "CustomAppsList.txt: enabled standard Store apps"
 $linuxScript = Join-Path $buildDirectory 'uup_download_linux.sh'
 if (Test-Path $linuxScript) {
     $content = [System.IO.File]::ReadAllText($linuxScript)
-    $patched = $content -replace '--no-conf\b', '--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --retry-on-http-error=429,500,502,503,504,522,524'
+    $patched = $content -replace '--no-conf\b', '--no-conf --timeout=60 --max-tries=20 --retry-wait=15'
     [System.IO.File]::WriteAllText($linuxScript, $patched)
     & chmod +x $linuxScript
-    Write-Log "Patched uup_download_linux.sh: --timeout=60 --max-tries=20 --retry-wait=15 --retry-on-http-error=429,5xx,522"
+    Write-Log "Patched uup_download_linux.sh: --timeout=60 --max-tries=20 --retry-wait=15"
 } else {
     Write-Log "uup_download_linux.sh not found in package — cannot continue" 'ERROR'
     exit 1
