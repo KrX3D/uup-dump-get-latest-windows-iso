@@ -38,6 +38,7 @@ docker compose run --rm uup-dump-windows-iso
 | `WINDOWS_RING` | `RETAIL` | Update ring/channel — see table below |
 | `LANGUAGE` | `de-de` | Language pack — `de-de`, `en-us`, `fr-fr`, `es-es`, `it-it`, `pl-pl`, … |
 | `EDITION` | `Professional` | `Professional`, `Home`, `ServerStandard`, `ServerDatacenter` |
+| `WORK_DIR` | `/work` | Temp build area inside the container — see Disk Space below |
 | `LOG_DIR` | _(same as output)_ | Separate directory for log files (container path `/logs`) |
 | `PUID` | `99` | UID for output file ownership (Unraid default: `99` = nobody) |
 | `PGID` | `100` | GID for output file ownership (Unraid default: `100` = users) |
@@ -80,7 +81,9 @@ Make sure the volume mapped to `/output` has at least **~35 GB free** before run
 | Temporary build files (`/work` inside the container) | ~30 GB (deleted automatically when done) |
 | Final ISO in `/output` | ~6–8 GB |
 
-Temp files are stored inside the container's own writable layer at `/work` — no extra volume mapping needed. On Unraid, Docker data lives on the cache drive by default, so the 30 GB temp space comes from there.
+Temp files go to `WORK_DIR` (default `/work`) inside the container's writable layer — no extra volume needed if your Docker data is already on the cache SSD.
+
+If you want temp files on a separate share, add a volume mapping (e.g. host `/mnt/cache/uup-work` → container `/work-ext`) and set `WORK_DIR=/work-ext`.
 
 ## Unraid
 
