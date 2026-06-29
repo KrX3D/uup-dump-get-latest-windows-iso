@@ -34,13 +34,7 @@ Logs: a rolling uup-dump.log plus one per-run log named YYYY-MM-DD_build_target_
   </Description>
   <Networking>
     <Mode>bridge</Mode>
-    <Publish>
-      <Port>
-        <HostPort>8080</HostPort>
-        <ContainerPort>8080</ContainerPort>
-        <Protocol>tcp</Protocol>
-      </Port>
-    </Publish>
+    <Publish/>
   </Networking>
   <Data>
     <Volume>
