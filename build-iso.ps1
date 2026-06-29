@@ -324,12 +324,14 @@ if (-not (Test-Path $linuxScript)) {
 # Check if any git.uupdump.net refs remain (URL may be split across variable + path).
 # grep -c always prints a number (even "0" on no match, exit 1), so use "; exit 0"
 # to avoid doubling output via "|| echo 0" which would give PowerShell an Object[].
-$remaining = [int][string](& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null; exit 0")
+$grepOut = & bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null; exit 0"
+$remaining = if ($grepOut) { [int][string]$grepOut } else { 0 }
 if ($remaining -gt 0) {
     # Stage 2: replace the domain separately, then remove the Gitea /raw/commit path segment
     & bash -c "sed -i 's|git\.uupdump\.net|raw.githubusercontent.com|g' `"$linuxScript`""
     & bash -c "sed -i 's|/uup-dump/converter/raw/commit/|/uup-dump/converter/|g' `"$linuxScript`""
-    $remaining = [int][string](& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null; exit 0")
+    $grepOut = & bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null; exit 0"
+    $remaining = if ($grepOut) { [int][string]$grepOut } else { 0 }
 }
 
 & chmod +x $linuxScript
@@ -337,7 +339,7 @@ if ($remaining -gt 0) {
 # Regardless of whether URL patching worked, pre-download the converter files
 # from GitHub CDN so they are already in place when the script runs.
 # This is the definitive fallback for any git.uupdump.net availability issue.
-$commitHash = (& bash -c "grep -oE '[a-f0-9]{40}' `"$linuxScript`" | head -1 2>/dev/null").Trim()
+$commitHash = ([string](& bash -c "grep -oE '[a-f0-9]{40}' `"$linuxScript`" 2>/dev/null | head -1; exit 0")).Trim()
 if ($commitHash -match '^[a-f0-9]{40}$') {
     $filesDir = Join-Path $buildDirectory 'files'
     New-Item -ItemType Directory -Force $filesDir | Out-Null
