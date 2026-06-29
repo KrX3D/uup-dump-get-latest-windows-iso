@@ -6,3 +6,6 @@ build-iso.ps1     text eol=lf
 *.sh              text eol=lf
 *.yml             text eol=lf
 *.xml             text eol=lf
+
+# UUP converter bundled files
+converter-cache/convert_ve_plugin binary
