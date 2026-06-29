@@ -316,10 +316,12 @@ if (-not (Test-Path $linuxScript)) {
 }
 
 # Inject aria2 retry/timeout flags into every --no-conf call in the script.
-# --lowest-speed-limit=1K closes connections stalled at 0 B/s (common on slow CDNs).
-& bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --lowest-speed-limit=1K /g' `"$linuxScript`""
+# --timeout=60 covers both connection and data-transfer stalls. Do NOT add
+# --lowest-speed-limit here: Microsoft's CDN delivers in bursts with pauses;
+# a speed limit kills those connections prematurely and wastes retry attempts.
+& bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 /g' `"$linuxScript`""
 & chmod +x $linuxScript
-Write-Log "Patched uup_download_linux.sh: aria2 retries + speed-limit added"
+Write-Log "Patched uup_download_linux.sh: aria2 retries added"
 
 # Pre-populate converter files from image cache and remove the aria2 download line.
 # aria2 errorCode=13 fires when a file exists without an .aria2 control file and
