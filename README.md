@@ -38,7 +38,6 @@ docker compose run --rm uup-dump-windows-iso
 | `WINDOWS_RING` | `RETAIL` | Update ring/channel — see table below |
 | `LANGUAGE` | `de-de` | Language pack — `de-de`, `en-us`, `fr-fr`, `es-es`, `it-it`, `pl-pl`, … |
 | `EDITION` | `Professional` | `Professional`, `Home`, `ServerStandard`, `ServerDatacenter` |
-| `WORK_DIR` | `/work` | Temp build area — needs ~30 GB free (container path `/work`) |
 | `LOG_DIR` | _(same as output)_ | Separate directory for log files (container path `/logs`) |
 | `PUID` | `99` | UID for output file ownership (Unraid default: `99` = nobody) |
 | `PGID` | `100` | GID for output file ownership (Unraid default: `100` = users) |
@@ -76,12 +75,12 @@ Example: `26200.8737.Vibranium-X64-DE-CLIENTPRO_Updated.iso`
 
 Make sure the volume mapped to `/output` has at least **~35 GB free** before running:
 
-| Purpose | Volume | Space |
-|---|---|---|
-| Temporary build files | `/work` | ~30 GB (deleted automatically when done) |
-| Final ISO | `/output` | ~6–8 GB |
+| Purpose | Space |
+|---|---|
+| Temporary build files (`/work` inside the container) | ~30 GB (deleted automatically when done) |
+| Final ISO in `/output` | ~6–8 GB |
 
-Map `/work` to a path with at least 30 GB free, ideally on a fast drive (cache SSD). On Unraid the default in the template is `/mnt/cache/uup-work`.
+Temp files are stored inside the container's own writable layer at `/work` — no extra volume mapping needed. On Unraid, Docker data lives on the cache drive by default, so the 30 GB temp space comes from there.
 
 ## Unraid
 

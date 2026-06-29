@@ -22,7 +22,7 @@ COPY entrypoint.sh /entrypoint.sh
 COPY build-iso.ps1 /build-iso.ps1
 RUN chmod +x /entrypoint.sh /build-iso.ps1
 
-VOLUME ["/output", "/work", "/logs"]
+VOLUME ["/output", "/logs"]
 
 ENV WINDOWS_TARGET="windows-11" \
     WINDOWS_RING="RETAIL" \

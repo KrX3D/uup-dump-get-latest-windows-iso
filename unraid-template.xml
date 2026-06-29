@@ -46,16 +46,10 @@ Logs: a rolling uup-dump.log plus one per-run log named YYYY-MM-DD_build_target_
       <ContainerDir>/logs</ContainerDir>
       <Mode>rw</Mode>
     </Volume>
-    <Volume>
-      <HostDir>/mnt/cache/uup-work</HostDir>
-      <ContainerDir>/work</ContainerDir>
-      <Mode>rw</Mode>
-    </Volume>
   </Data>
   <Environment/>
   <Labels/>
-  <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw" Description="Where the finished ISO, checksum, and metadata files are saved. Only the final ISO lands here — temp build files go to the Work Directory." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
-  <Config Name="Work Directory" Target="/work" Default="/mnt/cache/uup-work" Mode="rw" Description="Temporary build area. Needs ~30 GB free. Recommend mapping to your cache drive (fast SSD). Everything here is deleted automatically after the ISO is done." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/uup-work</Config>
+  <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows" Mode="rw" Description="Where the finished ISO, checksum, and metadata files are saved. Temp build files (~30 GB) stay inside the container and are deleted automatically." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
   <Config Name="Log Directory" Target="/logs" Default="/mnt/user/isos/windows" Mode="rw" Description="Where uup-dump.log and per-run log files are written. Defaults to the same folder as the ISOs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows</Config>
   <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode="" Description="Which Windows version to build: windows-11, windows-10, or windows-2022" Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>
   <Config Name="Windows Ring" Target="WINDOWS_RING" Default="RETAIL" Mode="" Description="RETAIL=current stable release. DEV=Dev Channel insider. BETA=Beta Channel. CANARY=Canary Channel. RP=Release Preview. ANY=newest build regardless of ring. Each run logs available builds so you can see which rings exist before changing." Type="Variable" Display="always" Required="false" Mask="false">RETAIL</Config>
