@@ -315,12 +315,27 @@ if (-not (Test-Path $linuxScript)) {
     exit 1
 }
 
-# Converter URLs live inside files/converter_multi (a file in the package zip),
-# not in the shell script itself — no URL patching of the script is needed.
-# Just inject retry flags so transient failures don't abort the download.
+# Inject aria2 retry flags into every --no-conf call in the script
 & bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 /g' `"$linuxScript`""
 & chmod +x $linuxScript
 Write-Log "Patched uup_download_linux.sh: aria2 retries added"
+
+# Pre-populate converter files from image cache so aria2 skips git.uupdump.net at runtime.
+# The cache is populated at `docker build` time; aria2 with --allow-overwrite=false skips
+# pre-existing files and treats them as already downloaded (no checksum verification).
+$converterMulti = Join-Path $buildDirectory 'files' 'converter_multi'
+if (Test-Path $converterMulti) {
+    $filesDir = Join-Path $buildDirectory 'files'
+    $cacheOk = (& bash -c "test -s /opt/uup-converter/convert.sh && test -s /opt/uup-converter/convert_ve_plugin && echo yes || echo no").Trim()
+    if ($cacheOk -eq 'yes') {
+        & bash -c "cp /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin `"$filesDir/`""
+        & bash -c "chmod +x `"$filesDir/convert.sh`" `"$filesDir/convert_ve_plugin`""
+        & bash -c "sed -i '/converter_multi/s/--allow-overwrite=true/--allow-overwrite=false/' `"$linuxScript`""
+        Write-Log "Pre-populated converter files from image cache; aria2 will skip git.uupdump.net"
+    } else {
+        Write-Log "No converter cache in image — aria2 will attempt git.uupdump.net directly"
+    }
+}
 
 # ── Run download and conversion ───────────────────────────────────────────────
 

@@ -18,6 +18,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-cache UUP converter files to avoid git.uupdump.net failures at runtime.
+# Non-fatal: if git.uupdump.net is unreachable at build time, aria2 will attempt it at runtime.
+RUN mkdir -p /opt/uup-converter && \
+    for branch in main master; do \
+        curl -fL --max-time 60 --retry 3 --retry-delay 15 \
+            "https://git.uupdump.net/uup-dump/converter/raw/branch/${branch}/convert.sh" \
+            -o /opt/uup-converter/convert.sh 2>/dev/null && \
+        curl -fL --max-time 60 --retry 3 --retry-delay 15 \
+            "https://git.uupdump.net/uup-dump/converter/raw/branch/${branch}/convert_ve_plugin" \
+            -o /opt/uup-converter/convert_ve_plugin 2>/dev/null && \
+        chmod +x /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin && \
+        echo "Cached UUP converter from branch: ${branch}" && break || \
+        echo "Branch ${branch} not available, trying next..."; \
+    done || true
+
 COPY entrypoint.sh /entrypoint.sh
 COPY build-iso.ps1 /build-iso.ps1
 RUN chmod +x /entrypoint.sh /build-iso.ps1
