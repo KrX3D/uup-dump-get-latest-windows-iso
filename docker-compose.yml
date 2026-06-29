@@ -3,11 +3,20 @@ services:
     image: ghcr.io/krx3d/uup-dump-get-latest-windows-iso:latest
     container_name: uup-dump-windows-iso
     volumes:
-      - /path/to/isos:/output    # final ISOs and log; temp files go to /output/.work during build
+      - /path/to/isos:/output       # ISO output and logs
+      - /path/to/config:/config     # settings.json persisted here (web UI)
     environment:
       - WINDOWS_TARGET=windows-11
       - LANGUAGE=de-de
       - EDITION=Professional
       - PUID=99
       - PGID=100
+      # Set MODE=web to start the configuration web UI instead of auto-building.
+      # Open http://<host>:8080 to configure and trigger builds.
+      # - MODE=web
+      # - WEB_PORT=8080
+    # ports:
+    #   - "8080:8080"   # only needed when MODE=web
     restart: "no"
+    # Use restart: unless-stopped when running in web mode:
+    # restart: unless-stopped

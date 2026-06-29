@@ -26,9 +26,10 @@ RUN chmod +x /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin
 
 COPY entrypoint.sh /entrypoint.sh
 COPY build-iso.ps1 /build-iso.ps1
+COPY web-ui.ps1    /web-ui.ps1
 RUN chmod +x /entrypoint.sh /build-iso.ps1
 
-VOLUME ["/output", "/logs"]
+VOLUME ["/output", "/logs", "/config"]
 
 ENV WINDOWS_TARGET="windows-11" \
     WINDOWS_RING="RETAIL" \
@@ -38,6 +39,10 @@ ENV WINDOWS_TARGET="windows-11" \
     WORK_DIR="/work" \
     LOG_DIR="/logs" \
     PUID="99" \
-    PGID="100"
+    PGID="100" \
+    MODE="auto" \
+    WEB_PORT="8080"
+
+EXPOSE 8080
 
 ENTRYPOINT ["/entrypoint.sh"]

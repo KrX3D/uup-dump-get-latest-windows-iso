@@ -6,7 +6,19 @@ param(
     [string]$WindowsTarget   = 'windows-11',
     [string]$Language        = 'de-de',
     [string]$Edition         = 'Professional',
-    [string]$Ring            = 'RETAIL'
+    [string]$Ring            = 'RETAIL',
+    # Web UI mode — set MODE=web (or -Mode web) to serve the config UI instead of auto-building
+    [string]$Mode            = 'auto',
+    [int]$WebPort            = 8080,
+    # Settings file written by the web UI; overrides ConvertConfig, app list, and output options
+    [string]$SettingsFile    = '',
+    # Per-run log path for the web UI live-log poller
+    [string]$CurrentBuildLog = '',
+    # Specific UUP dump build UUID pinned in the web UI; empty = use latest
+    [string]$BuildId         = '',
+    # Output file options (can be toggled in the web UI)
+    [bool]$WriteChecksum     = $true,
+    [bool]$WriteMetadata     = $true
 )
 
 Set-StrictMode -Version Latest
@@ -15,16 +27,36 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $LogDirectory) { $LogDirectory = $OutputDirectory }
 
-$script:WorkDirectory  = $WorkDirectory
-$script:buildDirectory = $null
-$script:RollingLog     = Join-Path $LogDirectory 'uup-dump.log'
-$script:RunStartTime   = (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss')
-$script:RunLogFile     = Join-Path $LogDirectory ('{0}_{1}_{2}_{3}.log' -f
+# Honour MODE env var as fallback (set in Docker as MODE=web)
+if ($Mode -eq 'auto' -and $env:MODE -eq 'web') { $Mode = 'web' }
+if ($WebPort -eq 8080 -and $env:WEB_PORT)       { $WebPort = [int]$env:WEB_PORT }
+
+$script:WorkDirectory    = $WorkDirectory
+$script:buildDirectory   = $null
+$script:CurrentBuildLog  = $CurrentBuildLog
+$script:StatusFilePath   = '/config/build-status.json'
+$script:UseStatusFile    = ($CurrentBuildLog -ne '')
+$script:RollingLog       = Join-Path $LogDirectory 'uup-dump.log'
+$script:RunStartTime     = (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss')
+$script:RunLogFile       = Join-Path $LogDirectory ('{0}_{1}_{2}_{3}.log' -f
     $script:RunStartTime, $WindowsTarget, $Language, $Edition)
 
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 New-Item -ItemType Directory -Force $LogDirectory    | Out-Null
 New-Item -ItemType Directory -Force $WorkDirectory   | Out-Null
+
+# Load settings file (written by the web UI; also auto-loaded from /config/settings.json in auto mode)
+$settingsData = $null
+$_sfPath = if ($SettingsFile) { $SettingsFile } `
+           elseif (Test-Path '/config/settings.json') { '/config/settings.json' } `
+           else { '' }
+if ($_sfPath) {
+    $settingsData = Get-Content $_sfPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
+    if ($settingsData) {
+        if ($settingsData.writeChecksum -ne $null) { $WriteChecksum = [bool]$settingsData.writeChecksum }
+        if ($settingsData.writeMetadata -ne $null) { $WriteMetadata = [bool]$settingsData.writeMetadata }
+    }
+}
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
@@ -33,6 +65,9 @@ function Write-Log {
     Write-Host $line
     try { Add-Content -Path $script:RollingLog -Value $line -Encoding UTF8 } catch {}
     try { Add-Content -Path $script:RunLogFile -Value $line -Encoding UTF8 } catch {}
+    if ($script:CurrentBuildLog) {
+        try { Add-Content -Path $script:CurrentBuildLog -Value $line -Encoding UTF8 } catch {}
+    }
 }
 
 function Invoke-LogRotate {
@@ -55,10 +90,29 @@ trap {
     if ($script:WorkDirectory -and (Test-Path $script:WorkDirectory)) {
         Remove-Item -Force -Recurse $script:WorkDirectory -ErrorAction SilentlyContinue
     }
+    if ($script:UseStatusFile) {
+        try { '{"status":"failed"}' | Set-Content $script:StatusFilePath -Encoding UTF8 } catch {}
+    }
     exit 1
 }
 
 Invoke-LogRotate
+
+# ── Web UI mode — source and start the HTTP server; never proceeds to build logic ─────
+
+if ($Mode -eq 'web') {
+    . '/web-ui.ps1'
+    Start-WebUi -BuildScriptPath $PSCommandPath -Port $WebPort `
+        -OutputDirectory $OutputDirectory -WorkDirectory $WorkDirectory -LogDirectory $LogDirectory
+    exit 0
+}
+
+# ── Auto-run mode: mark running if invoked from web UI ────────────────────────
+
+if ($script:UseStatusFile) {
+    New-Item -ItemType Directory -Force (Split-Path $script:StatusFilePath) | Out-Null
+    '{"status":"running"}' | Set-Content $script:StatusFilePath -Encoding UTF8
+}
 
 # Blank-line separator between runs in the rolling log
 if (Test-Path $script:RollingLog) {
@@ -74,6 +128,7 @@ Write-Log "Edition  : $Edition"
 Write-Log "Output   : $OutputDirectory"
 Write-Log "Logs     : $LogDirectory"
 Write-Log "Work     : $WorkDirectory (cleaned up on exit)"
+if ($BuildId) { Write-Log "BuildId  : $BuildId (pinned)" }
 Write-Log "=================================================="
 
 $TARGETS = @{
@@ -110,7 +165,31 @@ function New-QueryString([hashtable]$params) {
     }) -join '&'
 }
 
-function Get-UupDumpIso([string]$name, [hashtable]$target, [string]$wantRing) {
+function Get-UupDumpIso([string]$name, [hashtable]$target, [string]$wantRing, [string]$specificBuildId = '') {
+    if ($specificBuildId) {
+        Write-Log "Using pinned build ID: $specificBuildId"
+        $r     = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listlangs.php' -Body @{ id = $specificBuildId }
+        $build = $r.response.updateInfo.build
+        $ring  = if ($r.response.updateInfo.ring)  { $r.response.updateInfo.ring }  else { $wantRing }
+        $title = if ($r.response.updateInfo.title) { $r.response.updateInfo.title } else { "Build $build" }
+        if ($r.response.langFancyNames.PSObject.Properties.Name -notcontains $Language) {
+            Write-Log "Pinned build $specificBuildId does not have language '$Language'" 'ERROR'
+            return $null
+        }
+        return [PSCustomObject]@{
+            name               = $name
+            title              = $title
+            build              = $build
+            ring               = $ring
+            id                 = $specificBuildId
+            downloadPackageUrl = 'https://uupdump.net/get.php?' + (New-QueryString @{
+                id      = $specificBuildId
+                pack    = $Language
+                edition = $target.editions -join ';'
+            })
+        }
+    }
+
     Write-Log "Searching UUP dump: '$($target.search)' | Ring: $wantRing"
 
     $result = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listid.php' `
@@ -184,7 +263,7 @@ function Get-UupDumpIso([string]$name, [hashtable]$target, [string]$wantRing) {
 
 # ── Fetch latest build metadata ───────────────────────────────────────────────
 
-$iso = Get-UupDumpIso $WindowsTarget $TARGETS.$WindowsTarget $Ring
+$iso = Get-UupDumpIso $WindowsTarget $TARGETS.$WindowsTarget $Ring $BuildId
 
 if (-not $iso) {
     Write-Log "No matching build found for $WindowsTarget ($Language / $Edition)" 'ERROR'
@@ -264,64 +343,87 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     # ── Configure ConvertConfig.ini ────────────────────────────────────────────
 
     $configPath = Join-Path $buildDirectory 'ConvertConfig.ini'
-    Set-Content -Encoding ascii -Path $configPath -Value (
-        (Get-Content $configPath) `
-        -replace '^(AutoExit\s*)=.*',   '${1}=1' `
-        -replace '^(CustomList\s*)=.*', '${1}=1' `
-        -replace '^(NetFx3\s*)=.*',     '${1}=1' `
-        -replace '^(ResetBase\s*)=.*',  '${1}=1' `
-        -replace '^(SkipWinRE\s*)=.*',  '${1}=1'
-    )
-    if ($attempt -eq 1) { Write-Log "ConvertConfig.ini: AutoExit=1 CustomList=1 NetFx3=1 ResetBase=1 SkipWinRE=1" }
+    $cc = if ($settingsData -and $settingsData.convertConfig) { $settingsData.convertConfig } else {
+        [PSCustomObject]@{ AutoExit=$true; CustomList=$true; NetFx3=$true; ResetBase=$true; SkipWinRE=$true; AddUpdates=$false }
+    }
+    $ccMap = @{ AutoExit=$cc.AutoExit; CustomList=$cc.CustomList; NetFx3=$cc.NetFx3
+                ResetBase=$cc.ResetBase; SkipWinRE=$cc.SkipWinRE; AddUpdates=$cc.AddUpdates }
+    $cfgLines = Get-Content $configPath
+    foreach ($key in $ccMap.Keys) {
+        $val      = [int][bool]$ccMap[$key]
+        $cfgLines = $cfgLines -replace "^($key\s*)=.*", "`${1}=$val"
+    }
+    Set-Content -Encoding ascii -Path $configPath -Value $cfgLines
+    if ($attempt -eq 1) {
+        $ccSummary = ($ccMap.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Key)=$([int][bool]$_.Value)" }) -join ' '
+        Write-Log "ConvertConfig.ini: $ccSummary"
+    }
 
     # ── Configure CustomAppsList.txt ───────────────────────────────────────────
 
-    $appsPath = Join-Path $buildDirectory 'CustomAppsList.txt'
-    Set-Content -Encoding ascii -Path $appsPath -Value (
-        (Get-Content $appsPath) `
-        -replace '^\s*#\s*(Microsoft\.Windows\.Photos_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsCamera_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsNotepad_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.Paint_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsTerminal_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(MicrosoftWindows\.Client\.WebExperience_cw5n1h2txyewy)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsAlarms_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsCalculator_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsMaps_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.MicrosoftStickyNotes_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.ScreenSketch_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(microsoft\.windowscommunicationsapps_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.People_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsFeedbackHub_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.GetHelp_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.Getstarted_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.Todos_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.PowerAutomateDesktop_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.549981C3F5F10_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(MicrosoftCorporationII\.QuickAssist_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(MicrosoftCorporationII\.MicrosoftFamily_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Clipchamp\.Clipchamp_yxz26nhyzhsrt)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.ApplicationCompatibilityEnhancements_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(MicrosoftWindows\.CrossDevice_cw5n1h2txyewy)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.MicrosoftPCManager_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.YourPhone_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WindowsSoundRecorder_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.StartExperiencesApp_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WidgetsPlatformRuntime_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WebMediaExtensions_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.RawImageExtension_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.HEIFImageExtension_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.HEVCVideoExtension_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.VP9VideoExtensions_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.WebpImageExtension_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.DolbyAudioExtensions_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.AVCEncoderVideoExtension_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.MPEG2VideoExtension_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.AV1VideoExtension_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(Microsoft\.Whiteboard_8wekyb3d8bbwe)', '$1' `
-        -replace '^\s*#\s*(microsoft\.microsoftskydrive_8wekyb3d8bbwe)', '$1'
+    $allKnownApps = @(
+        'Microsoft.Windows.Photos_8wekyb3d8bbwe',
+        'Microsoft.WindowsCamera_8wekyb3d8bbwe',
+        'Microsoft.WindowsNotepad_8wekyb3d8bbwe',
+        'Microsoft.Paint_8wekyb3d8bbwe',
+        'Microsoft.WindowsTerminal_8wekyb3d8bbwe',
+        'MicrosoftWindows.Client.WebExperience_cw5n1h2txyewy',
+        'Microsoft.WindowsAlarms_8wekyb3d8bbwe',
+        'Microsoft.WindowsCalculator_8wekyb3d8bbwe',
+        'Microsoft.WindowsMaps_8wekyb3d8bbwe',
+        'Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe',
+        'Microsoft.ScreenSketch_8wekyb3d8bbwe',
+        'microsoft.windowscommunicationsapps_8wekyb3d8bbwe',
+        'Microsoft.People_8wekyb3d8bbwe',
+        'Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe',
+        'Microsoft.GetHelp_8wekyb3d8bbwe',
+        'Microsoft.Getstarted_8wekyb3d8bbwe',
+        'Microsoft.Todos_8wekyb3d8bbwe',
+        'Microsoft.PowerAutomateDesktop_8wekyb3d8bbwe',
+        'Microsoft.549981C3F5F10_8wekyb3d8bbwe',
+        'MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe',
+        'MicrosoftCorporationII.MicrosoftFamily_8wekyb3d8bbwe',
+        'Clipchamp.Clipchamp_yxz26nhyzhsrt',
+        'Microsoft.ApplicationCompatibilityEnhancements_8wekyb3d8bbwe',
+        'MicrosoftWindows.CrossDevice_cw5n1h2txyewy',
+        'Microsoft.MicrosoftPCManager_8wekyb3d8bbwe',
+        'Microsoft.YourPhone_8wekyb3d8bbwe',
+        'Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe',
+        'Microsoft.StartExperiencesApp_8wekyb3d8bbwe',
+        'Microsoft.WidgetsPlatformRuntime_8wekyb3d8bbwe',
+        'Microsoft.WebMediaExtensions_8wekyb3d8bbwe',
+        'Microsoft.RawImageExtension_8wekyb3d8bbwe',
+        'Microsoft.HEIFImageExtension_8wekyb3d8bbwe',
+        'Microsoft.HEVCVideoExtension_8wekyb3d8bbwe',
+        'Microsoft.VP9VideoExtensions_8wekyb3d8bbwe',
+        'Microsoft.WebpImageExtension_8wekyb3d8bbwe',
+        'Microsoft.DolbyAudioExtensions_8wekyb3d8bbwe',
+        'Microsoft.AVCEncoderVideoExtension_8wekyb3d8bbwe',
+        'Microsoft.MPEG2VideoExtension_8wekyb3d8bbwe',
+        'Microsoft.AV1VideoExtension_8wekyb3d8bbwe',
+        'Microsoft.Whiteboard_8wekyb3d8bbwe',
+        'microsoft.microsoftskydrive_8wekyb3d8bbwe'
     )
-    if ($attempt -eq 1) { Write-Log "CustomAppsList.txt: enabled standard Store apps" }
+    $enabledApps = if ($settingsData -and $settingsData.enabledApps -and @($settingsData.enabledApps).Count -gt 0) {
+        @($settingsData.enabledApps)
+    } else {
+        $allKnownApps
+    }
+    $appsPath    = Join-Path $buildDirectory 'CustomAppsList.txt'
+    $appsContent = Get-Content $appsPath
+    $appsContent = $appsContent | ForEach-Object {
+        $line = $_
+        if ($line -match '^(\s*)#\s*(\S.*)$') {
+            $appId = $Matches[2].Trim()
+            if ($allKnownApps -contains $appId -and $enabledApps -contains $appId) { return $appId }
+        } elseif ($line.Trim() -ne '' -and $line -notmatch '^\s*#') {
+            $appId = $line.Trim()
+            if ($allKnownApps -contains $appId -and $enabledApps -notcontains $appId) { return "# $appId" }
+        }
+        return $line
+    }
+    Set-Content -Encoding ascii -Path $appsPath -Value $appsContent
+    if ($attempt -eq 1) { Write-Log "CustomAppsList.txt: $($enabledApps.Count)/$($allKnownApps.Count) apps enabled" }
 
     # ── Patch uup_download_linux.sh ────────────────────────────────────────────
 
@@ -464,24 +566,29 @@ $destPath = Join-Path $OutputDirectory $destName
 Write-Log "Moving ISO to: $destPath"
 Move-Item -Path $sourceIso.FullName -Destination $destPath -Force
 
-Set-Content -Encoding ascii -NoNewline -Path "$destPath.sha256.txt" -Value $checksum
+if ($WriteChecksum) {
+    Set-Content -Encoding ascii -NoNewline -Path "$destPath.sha256.txt" -Value $checksum
+    Write-Log "Checksum written: $destName.sha256.txt"
+}
 
 # ── Write metadata JSON ───────────────────────────────────────────────────────
 
-$meta = [PSCustomObject]@{
-    name               = $WindowsTarget
-    title              = $iso.title
-    build              = $iso.build
-    language           = $Language
-    edition            = $Edition
-    isoFile            = $destName
-    checksum           = $checksum
-    createdAt          = (Get-Date).ToUniversalTime().ToString('o')
-    uupDumpId          = $iso.id
-    downloadPackageUrl = $iso.downloadPackageUrl
+if ($WriteMetadata) {
+    $meta = [PSCustomObject]@{
+        name               = $WindowsTarget
+        title              = $iso.title
+        build              = $iso.build
+        language           = $Language
+        edition            = $Edition
+        isoFile            = $destName
+        checksum           = $checksum
+        createdAt          = (Get-Date).ToUniversalTime().ToString('o')
+        uupDumpId          = $iso.id
+        downloadPackageUrl = $iso.downloadPackageUrl
+    }
+    $meta | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $OutputDirectory "$buildMajor.$buildMinor.json") -Encoding UTF8
+    Write-Log "Metadata written: $buildMajor.$buildMinor.json"
 }
-$meta | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $OutputDirectory "$buildMajor.$buildMinor.json") -Encoding UTF8
-Write-Log "Metadata written: $buildMajor.$buildMinor.json"
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
@@ -498,3 +605,7 @@ Get-ChildItem $OutputDirectory | Where-Object { -not $_.PSIsContainer } | Sort-O
 Write-Log "=================================================="
 Write-Log "Done: $destName"
 Write-Log "=================================================="
+
+if ($script:UseStatusFile) {
+    try { '{"status":"done"}' | Set-Content $script:StatusFilePath -Encoding UTF8 } catch {}
+}
