@@ -9,7 +9,7 @@ Docker container that automatically downloads and creates Windows ISO files usin
 - Supports Windows 10, Windows 11, and Windows Server 2022
 - Configurable update ring (stable, insider, canary, …), language, and edition
 - Rolling `uup-dump.log` plus a timestamped per-run log, both in a configurable log directory
-- Temporary build files (~30 GB) are stored under `/output/.work` and **cleaned up automatically** — on success and on error
+- Temporary build files (~30 GB) go to a dedicated `/work` volume — the ISO share stays clean
 - Unraid-ready with PUID/PGID support and an included Community Applications template
 
 ## Quick Start
@@ -38,6 +38,7 @@ docker compose run --rm uup-dump-windows-iso
 | `WINDOWS_RING` | `RETAIL` | Update ring/channel — see table below |
 | `LANGUAGE` | `de-de` | Language pack — `de-de`, `en-us`, `fr-fr`, `es-es`, `it-it`, `pl-pl`, … |
 | `EDITION` | `Professional` | `Professional`, `Home`, `ServerStandard`, `ServerDatacenter` |
+| `WORK_DIR` | `/work` | Temp build area — needs ~30 GB free (container path `/work`) |
 | `LOG_DIR` | _(same as output)_ | Separate directory for log files (container path `/logs`) |
 | `PUID` | `99` | UID for output file ownership (Unraid default: `99` = nobody) |
 | `PGID` | `100` | GID for output file ownership (Unraid default: `100` = users) |
@@ -75,10 +76,12 @@ Example: `26200.8737.Vibranium-X64-DE-CLIENTPRO_Updated.iso`
 
 Make sure the volume mapped to `/output` has at least **~35 GB free** before running:
 
-| Purpose | Space |
-|---|---|
-| Temporary build files (`/output/.work`) | ~30 GB (deleted automatically when done) |
-| Final ISO | ~6–8 GB |
+| Purpose | Volume | Space |
+|---|---|---|
+| Temporary build files | `/work` | ~30 GB (deleted automatically when done) |
+| Final ISO | `/output` | ~6–8 GB |
+
+Map `/work` to a path with at least 30 GB free, ideally on a fast drive (cache SSD). On Unraid the default in the template is `/mnt/cache/uup-work`.
 
 ## Unraid
 

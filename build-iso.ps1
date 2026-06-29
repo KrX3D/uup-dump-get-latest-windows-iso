@@ -2,6 +2,7 @@
 param(
     [string]$OutputDirectory = '/output',
     [string]$LogDirectory    = '',
+    [string]$WorkDirectory   = '/work',
     [string]$WindowsTarget   = 'windows-11',
     [string]$Language        = 'de-de',
     [string]$Edition         = 'Professional',
@@ -14,8 +15,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $LogDirectory) { $LogDirectory = $OutputDirectory }
 
-$script:WorkDirectory  = Join-Path $OutputDirectory '.work'
-$WorkDirectory         = $script:WorkDirectory
+$script:WorkDirectory  = $WorkDirectory
 $script:buildDirectory = $null
 $script:RollingLog     = Join-Path $LogDirectory 'uup-dump.log'
 $script:RunStartTime   = (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss')
@@ -24,6 +24,7 @@ $script:RunLogFile     = Join-Path $LogDirectory ('{0}_{1}_{2}_{3}.log' -f
 
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 New-Item -ItemType Directory -Force $LogDirectory    | Out-Null
+New-Item -ItemType Directory -Force $WorkDirectory   | Out-Null
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
@@ -311,10 +312,12 @@ Write-Log "CustomAppsList.txt: enabled standard Store apps"
 $linuxScript = Join-Path $buildDirectory 'uup_download_linux.sh'
 if (Test-Path $linuxScript) {
     $content = [System.IO.File]::ReadAllText($linuxScript)
-    $patched = $content -replace '--no-conf\b', '--no-conf --timeout=60 --max-tries=20 --retry-wait=15'
+    $patched = $content `
+        -replace '--no-conf\b', '--no-conf --timeout=60 --max-tries=20 --retry-wait=15' `
+        -replace 'git\.uupdump\.net/uup-dump/converter/raw/commit', 'raw.githubusercontent.com/uup-dump/converter'
     [System.IO.File]::WriteAllText($linuxScript, $patched)
     & chmod +x $linuxScript
-    Write-Log "Patched uup_download_linux.sh: --timeout=60 --max-tries=20 --retry-wait=15"
+    Write-Log "Patched uup_download_linux.sh: aria2 retries + converter URLs → GitHub CDN"
 } else {
     Write-Log "uup_download_linux.sh not found in package — cannot continue" 'ERROR'
     exit 1
