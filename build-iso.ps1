@@ -337,6 +337,18 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     $ciFlag = if ($attempt -gt 1) { '--check-integrity=true ' } else { '' }
     & bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 --disable-ipv6 ${ciFlag}/g' `"$linuxScript`""
     & bash -c "sed -i 's/-x16/-x4/g; s/-s16/-s4/g' `"$linuxScript`""
+
+    # Inject "Total files to download: N" right before the main download starts.
+    # The aria2 input script (aria2_script.PID.txt) has already been downloaded by
+    # this point in uup_download_linux.sh, so the grep count is accurate.
+    # Uses PowerShell string replace to avoid bash/sed quoting complexity.
+    $scriptContent = Get-Content -Path $linuxScript -Raw
+    $countSnippet  = '_tc=$(grep -c "^  out=" aria2_script.*.txt 2>/dev/null || echo "?"); echo "Total files to download: ${_tc}"'
+    $patched       = $scriptContent -replace '(echo "Downloading the UUP set\.\.\.")', "`$1`n$countSnippet"
+    if ($patched -ne $scriptContent) {
+        [System.IO.File]::WriteAllText($linuxScript, ($patched -replace '\r\n', "`n"))
+    }
+
     & chmod +x $linuxScript
     $patchSuffix = if ($attempt -gt 1) { ', check-integrity (skips complete files)' } else { '' }
     Write-Log "Patched uup_download_linux.sh: aria2 retries, IPv4-only, reduced connections$patchSuffix"
@@ -374,14 +386,31 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     try {
         # Tee-Object writes bash output to both Docker stdout and the per-run log file
         & bash ./uup_download_linux.sh 2>&1 | Tee-Object -Append -FilePath $script:RunLogFile
-        if ($LASTEXITCODE -eq 0) { break }
-        if ($attempt -lt $maxAttempts) {
-            Write-Log "Attempt $attempt failed — will retry with fresh URLs" 'ERROR'
-        } else {
-            throw "uup_download_linux.sh exited with code $LASTEXITCODE after $maxAttempts attempts"
-        }
+        $_exitCode = $LASTEXITCODE
     } finally {
         Pop-Location
+    }
+
+    # ── Download summary ───────────────────────────────────────────────────────
+    $_uupsDir = Join-Path $buildDirectory 'UUPs'
+    if (Test-Path $_uupsDir) {
+        $_doneFiles = @(Get-ChildItem $_uupsDir -File -EA SilentlyContinue |
+                        Where-Object Extension -ne '.aria2')
+        $_bytes     = ($_doneFiles | Measure-Object Length -Sum).Sum
+        $_szStr     = if ($_bytes -ge 1GB)   { '{0:F2} GB' -f ($_bytes / 1GB)  }
+                      elseif ($_bytes -ge 1MB) { '{0:F1} MB' -f ($_bytes / 1MB)  }
+                      else                     { '{0} KB'    -f [int]($_bytes / 1KB) }
+        $_a2f   = Get-ChildItem $buildDirectory -Filter 'aria2_script.*.txt' -EA SilentlyContinue |
+                  Select-Object -First 1
+        $_total = if ($_a2f) { (Select-String -Path $_a2f.FullName -Pattern '^  out=').Count } else { '?' }
+        Write-Log "Download: $($_doneFiles.Count)/$_total files complete | $_szStr on disk"
+    }
+
+    if ($_exitCode -eq 0) { break }
+    if ($attempt -lt $maxAttempts) {
+        Write-Log "Attempt $attempt failed (exit $_exitCode) — will retry with fresh URLs" 'ERROR'
+    } else {
+        throw "uup_download_linux.sh exited with code $_exitCode after $maxAttempts attempts"
     }
 }
 
