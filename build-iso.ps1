@@ -13,7 +13,8 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $LogDirectory) { $LogDirectory = $OutputDirectory }
 
-$WorkDirectory         = Join-Path $OutputDirectory '.work'
+$script:WorkDirectory  = Join-Path $OutputDirectory '.work'
+$WorkDirectory         = $script:WorkDirectory
 $script:buildDirectory = $null
 $script:RollingLog     = Join-Path $LogDirectory 'uup-dump.log'
 $script:RunLogFile     = Join-Path $LogDirectory ('{0}_{1}_{2}_{3}.log' -f
@@ -47,6 +48,9 @@ trap {
         Write-Log "Cleaning up work directory after error..."
         Remove-Item -Force -Recurse $script:buildDirectory -ErrorAction SilentlyContinue
         Remove-Item -Force "$($script:buildDirectory).zip" -ErrorAction SilentlyContinue
+    }
+    if ($script:WorkDirectory -and (Test-Path $script:WorkDirectory)) {
+        Remove-Item -Force -Recurse $script:WorkDirectory -ErrorAction SilentlyContinue
     }
     exit 1
 }
@@ -113,7 +117,7 @@ function Get-UupDumpIso([string]$name, [hashtable]$target) {
           -and (($target.skip | ForEach-Object { $t -like $_ }) -notcontains $true)
     } `
     | Sort-Object { [version]$_.Value.build } -Descending `
-    | Select-Object -First 5
+    | Select-Object -First 10
 
     foreach ($candidate in $candidates) {
         $id    = $candidate.Value.uuid
@@ -121,6 +125,14 @@ function Get-UupDumpIso([string]$name, [hashtable]$target) {
         Write-Log "Checking build $id ($build)..."
 
         $r = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listlangs.php' -Body @{ id = $id }
+
+        # Skip insider/preview builds — only accept RETAIL ring
+        $ring = $r.response.updateInfo.ring
+        if ($ring -and $ring -ne 'RETAIL') {
+            Write-Log "  Skipping $build (ring: $ring)"
+            continue
+        }
+
         if ($r.response.langFancyNames.PSObject.Properties.Name -notcontains $Language) { continue }
 
         $r2 = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listeditions.php' `
@@ -290,10 +302,9 @@ $startTime = Get-Date
 
 Push-Location $buildDirectory
 try {
-    $proc = Start-Process -FilePath 'bash' -ArgumentList './uup_download_linux.sh' `
-        -NoNewWindow -PassThru -Wait
-    if ($proc.ExitCode -ne 0) {
-        throw "uup_download_linux.sh exited with code $($proc.ExitCode)"
+    & bash ./uup_download_linux.sh
+    if ($LASTEXITCODE -ne 0) {
+        throw "uup_download_linux.sh exited with code $LASTEXITCODE"
     }
 } finally {
     Pop-Location
@@ -372,8 +383,9 @@ Write-Log "Metadata written: $buildMajor.$buildMinor.json"
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
 Write-Log "Cleaning up work directory..."
-Remove-Item -Force -Recurse $buildDirectory -ErrorAction SilentlyContinue
-Remove-Item -Force "$buildDirectory.zip"    -ErrorAction SilentlyContinue
+Remove-Item -Force -Recurse $buildDirectory       -ErrorAction SilentlyContinue
+Remove-Item -Force "$buildDirectory.zip"          -ErrorAction SilentlyContinue
+Remove-Item -Force -Recurse $script:WorkDirectory -ErrorAction SilentlyContinue
 
 Write-Log "Output directory:"
 Get-ChildItem $OutputDirectory | Where-Object { -not $_.PSIsContainer } | Sort-Object Name | ForEach-Object {
