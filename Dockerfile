@@ -19,19 +19,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-cache UUP converter files to avoid git.uupdump.net failures at runtime.
-# Non-fatal: if git.uupdump.net is unreachable at build time, aria2 will attempt it at runtime.
+# Uses the Gitea API to resolve the latest commit hash (immutable CDN URLs are more
+# reliably cached by Cloudflare than branch HEAD URLs). Non-fatal: if git.uupdump.net
+# is unreachable at build time, aria2 will attempt it at runtime instead.
 RUN mkdir -p /opt/uup-converter && \
-    for branch in main master; do \
-        curl -fL --max-time 60 --retry 3 --retry-delay 15 \
-            "https://git.uupdump.net/uup-dump/converter/raw/branch/${branch}/convert.sh" \
-            -o /opt/uup-converter/convert.sh 2>/dev/null && \
-        curl -fL --max-time 60 --retry 3 --retry-delay 15 \
-            "https://git.uupdump.net/uup-dump/converter/raw/branch/${branch}/convert_ve_plugin" \
-            -o /opt/uup-converter/convert_ve_plugin 2>/dev/null && \
-        chmod +x /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin && \
-        echo "Cached UUP converter from branch: ${branch}" && break || \
-        echo "Branch ${branch} not available, trying next..."; \
-    done || true
+    hash=$(curl -sf --max-time 15 \
+        "https://git.uupdump.net/api/v1/repos/uup-dump/converter/commits?limit=1&sha=master" \
+        2>/dev/null | grep -o '"sha":"[0-9a-f]*"' | head -1 | cut -d'"' -f4) && \
+    echo "UUP converter commit: ${hash:-not_found}" && \
+    if [ -n "$hash" ]; then \
+        for f in convert.sh convert_ve_plugin; do \
+            curl -fL --max-time 120 --retry 5 --retry-delay 20 \
+                "https://git.uupdump.net/uup-dump/converter/raw/commit/$hash/$f" \
+                -o "/opt/uup-converter/$f" 2>/dev/null && \
+            test -s "/opt/uup-converter/$f" && echo "Cached $f" || \
+            echo "WARNING: Could not cache $f"; \
+        done; \
+        chmod +x /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin 2>/dev/null; \
+    else \
+        echo "WARNING: Could not resolve converter commit hash"; \
+    fi; \
+    ls -la /opt/uup-converter/ || true
 
 COPY entrypoint.sh /entrypoint.sh
 COPY build-iso.ps1 /build-iso.ps1
