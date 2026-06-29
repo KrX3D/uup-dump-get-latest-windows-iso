@@ -339,7 +339,15 @@ if ($remaining -gt 0) {
 # Regardless of whether URL patching worked, pre-download the converter files
 # from GitHub CDN so they are already in place when the script runs.
 # This is the definitive fallback for any git.uupdump.net availability issue.
-$commitHash = ([string](& bash -c "grep -oE '[a-f0-9]{40}' `"$linuxScript`" 2>/dev/null | head -1; exit 0")).Trim()
+# Log relevant lines so we can see the exact URL format if patching fails
+$diagLines = & bash -c "grep -nE 'git\.(uupdump|githubusercontent)|aria2c|convert\.(sh|ve_plugin)' `"$linuxScript`" 2>/dev/null | head -20; exit 0"
+if ($diagLines) {
+    Write-Log "Converter section in uup_download_linux.sh:"
+    @($diagLines) | ForEach-Object { Write-Log "  $_" }
+}
+
+$commitHashRaw = & bash -c "grep -oE '[a-f0-9]{40}' `"$linuxScript`" 2>/dev/null | head -1; exit 0"
+$commitHash = "$commitHashRaw".Trim()
 if ($commitHash -match '^[a-f0-9]{40}$') {
     $filesDir = Join-Path $buildDirectory 'files'
     New-Item -ItemType Directory -Force $filesDir | Out-Null
