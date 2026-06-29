@@ -307,20 +307,61 @@ Set-Content -Encoding ascii -Path $appsPath -Value (
 )
 Write-Log "CustomAppsList.txt: enabled standard Store apps"
 
-# ── Patch aria2 flags in the Linux download script ───────────────────────────
+# ── Patch aria2 flags and converter URLs in the Linux download script ────────
 
 $linuxScript = Join-Path $buildDirectory 'uup_download_linux.sh'
-if (Test-Path $linuxScript) {
-    $content = [System.IO.File]::ReadAllText($linuxScript)
-    $patched = $content `
-        -replace '--no-conf\b', '--no-conf --timeout=60 --max-tries=20 --retry-wait=15' `
-        -replace 'git\.uupdump\.net/uup-dump/converter/raw/commit', 'raw.githubusercontent.com/uup-dump/converter'
-    [System.IO.File]::WriteAllText($linuxScript, $patched)
-    & chmod +x $linuxScript
-    Write-Log "Patched uup_download_linux.sh: aria2 retries + converter URLs → GitHub CDN"
-} else {
+if (-not (Test-Path $linuxScript)) {
     Write-Log "uup_download_linux.sh not found in package — cannot continue" 'ERROR'
     exit 1
+}
+
+# Patch aria2 retry flags via sed (more reliable for shell scripts than PS regex)
+& bash -c "sed -i 's/--no-conf /--no-conf --timeout=60 --max-tries=20 --retry-wait=15 /g' `"$linuxScript`""
+
+# Stage 1: full-path replacement (URL stored as a literal string)
+& bash -c "sed -i 's|git\.uupdump\.net/uup-dump/converter/raw/commit|raw.githubusercontent.com/uup-dump/converter|g' `"$linuxScript`""
+
+# Check if any git.uupdump.net refs remain (URL may be split across variable + path)
+$remaining = (& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null || echo 0").Trim()
+if ([int]$remaining -gt 0) {
+    # Stage 2: replace the domain separately, then remove the Gitea /raw/commit path segment
+    & bash -c "sed -i 's|git\.uupdump\.net|raw.githubusercontent.com|g' `"$linuxScript`""
+    & bash -c "sed -i 's|/uup-dump/converter/raw/commit/|/uup-dump/converter/|g' `"$linuxScript`""
+    $remaining = (& bash -c "grep -c 'git\.uupdump\.net' `"$linuxScript`" 2>/dev/null || echo 0").Trim()
+}
+
+& chmod +x $linuxScript
+
+# Regardless of whether URL patching worked, pre-download the converter files
+# from GitHub CDN so they are already in place when the script runs.
+# This is the definitive fallback for any git.uupdump.net availability issue.
+$commitHash = (& bash -c "grep -oE '[a-f0-9]{40}' `"$linuxScript`" | head -1 2>/dev/null").Trim()
+if ($commitHash -match '^[a-f0-9]{40}$') {
+    $filesDir = Join-Path $buildDirectory 'files'
+    New-Item -ItemType Directory -Force $filesDir | Out-Null
+    $allPreloaded = $true
+    foreach ($cf in @('convert.sh', 'convert_ve_plugin')) {
+        $cfDest = Join-Path $filesDir $cf
+        if (-not (Test-Path $cfDest)) {
+            try {
+                Invoke-WebRequest -Uri "https://raw.githubusercontent.com/uup-dump/converter/$commitHash/$cf" `
+                    -OutFile $cfDest -ErrorAction Stop
+                & bash -c "chmod +x `"$cfDest`""
+            } catch {
+                Write-Log "  Could not pre-download $cf`: $_" 'WARN'
+                $allPreloaded = $false
+            }
+        }
+    }
+    if ($allPreloaded) {
+        Write-Log "Converter files pre-downloaded from GitHub CDN (commit: $($commitHash.Substring(0,8))...)"
+    }
+}
+
+if ([int]$remaining -gt 0) {
+    Write-Log "Patched uup_download_linux.sh: aria2 retries; git.uupdump.net still present ($remaining refs) — relying on pre-download" 'WARN'
+} else {
+    Write-Log "Patched uup_download_linux.sh: aria2 retries + converter URLs → GitHub CDN"
 }
 
 # ── Run download and conversion ───────────────────────────────────────────────
