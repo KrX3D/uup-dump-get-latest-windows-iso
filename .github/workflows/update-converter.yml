@@ -1,0 +1,83 @@
+name: Update UUP Converter Cache
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 6 AM UTC
+  workflow_dispatch:
+
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for converter update
+        id: check
+        run: |
+          current=$(cat converter-cache/VERSION 2>/dev/null | tr -d '[:space:]' || echo "none")
+          echo "Current: $current"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
+          latest=$(curl -sf --max-time 15 \
+            "https://git.uupdump.net/api/v1/repos/uup-dump/converter/commits?limit=1&sha=master" \
+            | grep -o '"sha":"[0-9a-f]*"' | head -1 | cut -d'"' -f4)
+
+          if [ -z "$latest" ]; then
+            echo "::warning::Could not reach git.uupdump.net to check for updates"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          elif [ "$current" = "$latest" ]; then
+            echo "Converter is up to date at $current"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Update available: $current -> $latest"
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download updated converter files
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          hash="${{ steps.check.outputs.latest }}"
+          for f in convert.sh convert_ve_plugin; do
+            ok=false
+            for i in 1 2 3 4 5; do
+              curl -fL --max-time 120 \
+                "https://git.uupdump.net/uup-dump/converter/raw/commit/$hash/$f" \
+                -o "converter-cache/$f" && \
+              test -s "converter-cache/$f" && echo "Downloaded $f" && ok=true && break || \
+              echo "Attempt $i failed for $f, retrying in 20s..." && sleep 20
+            done
+            $ok || { echo "::error::Failed to download $f after 5 attempts"; exit 1; }
+          done
+          echo "$hash" > converter-cache/VERSION
+          chmod +x converter-cache/convert.sh converter-cache/convert_ve_plugin
+
+      - name: Create Pull Request
+        if: steps.check.outputs.needed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update bundled UUP converter to ${{ steps.check.outputs.latest }}"
+          branch: update/uup-converter-${{ steps.check.outputs.latest }}
+          delete-branch: true
+          title: "Update bundled UUP converter"
+          body: |
+            Automated update of the bundled UUP converter files in `converter-cache/`.
+
+            | | Commit |
+            |---|---|
+            | Previous | `${{ steps.check.outputs.current }}` |
+            | New | `${{ steps.check.outputs.latest }}` |
+
+            Source: [git.uupdump.net/uup-dump/converter](https://git.uupdump.net/uup-dump/converter)
+
+            Merging this PR triggers a Docker image rebuild with the updated converter.
+          add-paths: |
+            converter-cache/convert.sh
+            converter-cache/convert_ve_plugin
+            converter-cache/VERSION
