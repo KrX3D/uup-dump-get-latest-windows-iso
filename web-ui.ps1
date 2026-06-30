@@ -256,23 +256,35 @@ function Stop-ProcessTree {
     try { Stop-Process -Id $TargetPid -Force -EA SilentlyContinue } catch {}
 }
 
+function Write-WebStopLog {
+    param([string]$Message)
+    $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC')
+    try { Add-Content -Path $script:webCurrentBuildLog -Value "[$ts] [STOPPED] $Message" -Encoding UTF8 } catch {}
+}
+
 function Stop-WebBuild {
     param($res)
+    $wasRunning = $false
     if (Test-Path $script:webStatusPath) {
         $st = Get-Content $script:webStatusPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
         # Check status before dereferencing .pid — under Set-StrictMode, accessing
         # a property that doesn't exist (e.g. idle/done states written without pid)
         # throws instead of returning $null.
         if ($st -and $st.status -eq 'running' -and $st.pid) {
+            $wasRunning = $true
+            Write-WebStopLog "Build cancelled by user — stopping all processes..."
             Stop-ProcessTree -TargetPid ([int]$st.pid)
         }
     }
-    # Give killed processes a moment to release file handles, then wipe partial build artifacts.
-    Start-Sleep -Milliseconds 500
-    if (Test-Path $script:webWorkDir) {
-        Get-ChildItem $script:webWorkDir -Force -EA SilentlyContinue | Remove-Item -Recurse -Force -EA SilentlyContinue
+    if ($wasRunning) {
+        # Give killed processes a moment to release file handles, then wipe partial build artifacts.
+        Start-Sleep -Milliseconds 500
+        if (Test-Path $script:webWorkDir) {
+            Get-ChildItem $script:webWorkDir -Force -EA SilentlyContinue | Remove-Item -Recurse -Force -EA SilentlyContinue
+        }
+        Write-WebStopLog "Partial build files cleaned up. Build stopped."
+        @{ status = 'stopped' } | ConvertTo-Json -Compress | Set-Content $script:webStatusPath -Encoding UTF8
     }
-    @{ status = 'idle' } | ConvertTo-Json | Set-Content $script:webStatusPath -Encoding UTF8
     Write-WebJson $res @{ ok = $true }
 }
 
@@ -375,6 +387,7 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
 .b-running{background:#1a3c2e;color:var(--green)}
 .b-done{background:#1a3c2e;color:var(--green)}
 .b-failed{background:#3d1a1a;color:var(--red)}
+.b-stopped{background:#3d3318;color:var(--yellow)}
 .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .pulsing{animation:pulse 1.4s ease-in-out infinite}
@@ -726,7 +739,7 @@ function appendLog(line){
   const log=document.getElementById("log");
   const atBot=log.scrollHeight-log.scrollTop<=log.clientHeight+60;
   const d=document.createElement("div");
-  d.className=line.includes("[ERROR]")?"le":line.includes("[WARN")?"lw":line.match(/^=/)?"ls":"li";
+  d.className=line.includes("[ERROR]")?"le":line.includes("[WARN")||line.includes("[STOPPED]")?"lw":line.match(/^=/)?"ls":"li";
   d.textContent=line;log.appendChild(d);
   if(atBot)log.scrollTop=log.scrollHeight;
 }
@@ -734,13 +747,14 @@ function setStatus(s){
   if(s===curStatus)return;curStatus=s||"idle";
   const badge=document.getElementById("statusBadge"),txt=document.getElementById("statusTxt"),dot=document.getElementById("statusDot");
   badge.className="badge b-"+curStatus;
-  txt.textContent={idle:"Idle",running:"Building...",done:"Done",failed:"Failed"}[curStatus]||"Idle";
+  txt.textContent={idle:"Idle",running:"Building...",done:"Done",failed:"Failed",stopped:"Stopped"}[curStatus]||"Idle";
   dot.className="dot"+(curStatus==="running"?" pulsing":"");
   if(curStatus!=="running"){
     document.getElementById("startBtn").disabled=false;
     document.getElementById("stopBtn").style.display="none";
     if(curStatus==="done"){toast("Build complete!");loadOutputs();}
     if(curStatus==="failed")toast("Build failed — check the log","var(--red)");
+    if(curStatus==="stopped")toast("Build stopped","var(--yellow)");
   }
 }
 async function loadOutputs(){
