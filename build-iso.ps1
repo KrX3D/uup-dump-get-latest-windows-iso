@@ -27,9 +27,11 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $LogDirectory) { $LogDirectory = $OutputDirectory }
 
-# Honour MODE env var as fallback (set in Docker as MODE=web)
-if ($Mode -eq 'auto' -and $env:MODE -eq 'web') { $Mode = 'web' }
-if ($WebPort -eq 8080 -and $env:WEB_PORT)       { $WebPort = [int]$env:WEB_PORT }
+# Apply env var overrides only when the param was NOT explicitly passed.
+# This prevents child build processes (spawned with -Mode auto) from
+# inheriting MODE=web from Docker's environment and trying to re-bind port 8080.
+if (-not $PSBoundParameters.ContainsKey('Mode')    -and $env:MODE -eq 'web') { $Mode    = 'web' }
+if (-not $PSBoundParameters.ContainsKey('WebPort') -and $env:WEB_PORT)       { $WebPort = [int]$env:WEB_PORT }
 
 $script:WorkDirectory    = $WorkDirectory
 $script:buildDirectory   = $null
@@ -53,8 +55,8 @@ $_sfPath = if ($SettingsFile) { $SettingsFile } `
 if ($_sfPath) {
     $settingsData = Get-Content $_sfPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
     if ($settingsData) {
-        if ($settingsData.writeChecksum -ne $null) { $WriteChecksum = [bool]$settingsData.writeChecksum }
-        if ($settingsData.writeMetadata -ne $null) { $WriteMetadata = [bool]$settingsData.writeMetadata }
+        if ($null -ne $settingsData.writeChecksum) { $WriteChecksum = [bool]$settingsData.writeChecksum }
+        if ($null -ne $settingsData.writeMetadata) { $WriteMetadata = [bool]$settingsData.writeMetadata }
     }
 }
 

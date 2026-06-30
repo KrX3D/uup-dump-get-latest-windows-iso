@@ -63,10 +63,10 @@ function Invoke-WebRequest-Handler {
         switch ("$method $path") {
             { $_ -in 'GET /', 'GET' }        { Send-WebHtml $res }
             'GET /api/config'                 { Send-WebConfig $res }
-            'POST /api/config'                { Recv-WebConfig $req $res }
+            'POST /api/config'                { Set-WebConfig $req $res }
             'GET /api/builds'                 { Send-WebBuilds $req $res }
-            'POST /api/start'                 { Recv-WebStart $req $res }
-            'POST /api/stop'                  { Recv-WebStop $res }
+            'POST /api/start'                 { Start-WebBuild $req $res }
+            'POST /api/stop'                  { Stop-WebBuild $res }
             'GET /api/log'                    { Send-WebLog $req $res }
             'GET /api/outputs'                { Send-WebOutputs $res }
             default {
@@ -125,7 +125,7 @@ function Send-WebConfig {
     }
 }
 
-function Recv-WebConfig {
+function Set-WebConfig {
     param($req, $res)
     $body = Read-WebBody $req
     New-Item -ItemType Directory -Force (Split-Path $script:webSettingsPath) | Out-Null
@@ -137,8 +137,6 @@ function Send-WebBuilds {
     param($req, $res)
     $qs     = $req.QueryString
     $target = $qs['target'] ?? 'windows-11'
-    $lang   = $qs['lang']   ?? 'de-de'
-    $ring   = $qs['ring']   ?? 'RETAIL'
 
     $searchMap = @{
         'windows-10'   = 'windows 10 amd64'
@@ -180,7 +178,7 @@ function Send-WebBuilds {
     }
 }
 
-function Recv-WebStart {
+function Start-WebBuild {
     param($req, $res)
 
     # Reject if already running
@@ -231,7 +229,7 @@ function Recv-WebStart {
     Write-WebJson $res @{ ok = $true; pid = $proc.Id }
 }
 
-function Recv-WebStop {
+function Stop-WebBuild {
     param($res)
     if (Test-Path $script:webStatusPath) {
         $st = Get-Content $script:webStatusPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
@@ -330,7 +328,7 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
 .cb input[type="checkbox"]{margin-top:2px;width:13px;height:13px;accent-color:var(--accent);flex-shrink:0;cursor:pointer}
 .cb .cbl{font-size:12px}
 .cb .cbd{font-size:11px;color:var(--muted)}
-.apps-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0}
+.apps-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0}
 .apps-grid .cb{border-bottom:none;padding:3px 0}
 .apps-grid .cb .cbl{font-size:11px}
 .btn{padding:5px 13px;border-radius:5px;border:none;cursor:pointer;font-size:12px;font-weight:500}
@@ -417,7 +415,12 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
           <button class="btn btn-s btn-xs" id="bClear" onclick="clearBuild()" style="display:none">Clear</button>
         </div>
       </div>
-      <div id="bList" class="builds-box" style="padding:10px;color:var(--muted);font-size:11px">Click Fetch to query UUP dump for the selected OS / ring.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:7px">
+        Click <b>Fetch</b> to list available builds from UUP dump for the selected OS.<br>
+        Click a build to <b>pin</b> it — the next build will download that exact version instead of the latest.<br>
+        Leave unpinned to always build the newest available release.
+      </div>
+      <div id="bList" class="builds-box" style="padding:10px;color:var(--muted);font-size:11px">No builds loaded yet.</div>
       <div id="bPin" style="display:none;margin-top:7px;font-size:11px;color:var(--accent)"></div>
     </div>
 
