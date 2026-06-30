@@ -11,15 +11,19 @@ function Start-WebUi {
         [string]$LogDirectory    = '/output'
     )
 
-    $script:webSettingsPath    = '/config/settings.json'
-    $script:webStatusPath      = '/config/build-status.json'
-    $script:webCurrentBuildLog = '/config/current-build.log'
     $script:webBuildScriptPath = $BuildScriptPath
     $script:webOutputDir       = $OutputDirectory
     $script:webWorkDir         = $WorkDirectory
     $script:webLogDir          = $LogDirectory
 
-    New-Item -ItemType Directory -Force '/config' | Out-Null
+    # Settings and status live in /config (mountable for persistence).
+    # The live build log goes in the log directory (/logs) which is always
+    # writable — /config may not be if the user hasn't mapped the volume.
+    New-Item -ItemType Directory -Force '/config'      | Out-Null
+    New-Item -ItemType Directory -Force $LogDirectory  | Out-Null
+    $script:webSettingsPath    = '/config/settings.json'
+    $script:webStatusPath      = '/config/build-status.json'
+    $script:webCurrentBuildLog = Join-Path $LogDirectory 'current-build.log'
 
     if (-not (Test-Path $script:webStatusPath)) {
         '{"status":"idle"}' | Set-Content $script:webStatusPath -Encoding UTF8
@@ -159,8 +163,15 @@ function Send-WebBuilds {
         | Where-Object {
             $t = $_.Value.title
             $t -like $keepPat -and
-            $t -notlike '*team*' -and $t -notlike '*insider*' -and
-            $t -notlike '*preview*' -and $t -notlike '*next*'
+            $t -notlike '*team*'             -and
+            $t -notlike '*insider*'          -and
+            $t -notlike '*preview*'          -and
+            $t -notlike '*next*'             -and
+            $t -notlike '*-KB*'             -and   # KB hotfix/patch entries
+            $t -notlike '*.NET Framework*'  -and   # .NET patch entries
+            $t -notlike '*Security Update*' -and   # standalone security updates
+            $t -notlike '*OOBE Update*'     -and   # OOBE patches
+            $t -notlike '*Critical*Update*'        # critical update entries
         } `
         | Sort-Object { [version]$_.Value.build } -Descending `
         | Select-Object -First 25 `
@@ -169,7 +180,6 @@ function Send-WebBuilds {
                 id    = $_.Value.uuid
                 build = $_.Value.build
                 title = $_.Value.title
-                ring  = if ($_.Value.PSObject.Properties.Name -contains 'ring' -and $_.Value.ring) { $_.Value.ring } else { '?' }
             }
         }
         Write-WebJson $res @($builds)
@@ -278,20 +288,16 @@ function Send-WebOutputs {
 }
 
 function Get-WebBuildStatus {
-    $status = 'idle'
-    if (-not (Test-Path $script:webStatusPath)) { return $status }
-
+    if (-not (Test-Path $script:webStatusPath)) { return 'idle' }
     $raw = Get-Content $script:webStatusPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
-    if (-not $raw) { return $status }
-
-    $status = $raw.status
+    if (-not $raw) { return 'idle' }
+    $status = [string]$raw.status
+    # Build script now writes the status file before every exit. As a safety net,
+    # if the process is gone but the file still says 'running', mark it failed.
     if ($status -eq 'running' -and $raw.pid) {
         if (-not (Get-Process -Id ([int]$raw.pid) -EA SilentlyContinue)) {
-            # Process exited — determine outcome from last log lines
-            $tail = @(Get-Content $script:webCurrentBuildLog -Tail 10 -EA SilentlyContinue)
-            $status = if ($tail -match '\[INFO\].*Done:') { 'done' } else { 'failed' }
-            @{ status = $status; pid = $raw.pid; startedAt = $raw.startedAt } `
-                | ConvertTo-Json | Set-Content $script:webStatusPath -Encoding UTF8
+            $status = 'failed'
+            ('{"status":"failed"}') | Set-Content $script:webStatusPath -Encoding UTF8 -EA SilentlyContinue
         }
     }
     return $status
@@ -326,8 +332,8 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
 .cb{display:flex;align-items:flex-start;gap:7px;padding:5px 0;cursor:pointer;border-bottom:1px solid var(--border)}
 .cb:last-child{border-bottom:none}
 .cb input[type="checkbox"]{margin-top:2px;width:13px;height:13px;accent-color:var(--accent);flex-shrink:0;cursor:pointer}
-.cb .cbl{font-size:12px}
-.cb .cbd{font-size:11px;color:var(--muted)}
+.cb .cbl{font-size:12px;display:block}
+.cb .cbd{font-size:11px;color:var(--muted);display:block;margin-top:1px}
 .apps-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0}
 .apps-grid .cb{border-bottom:none;padding:3px 0}
 .apps-grid .cb .cbl{font-size:11px}
@@ -605,7 +611,7 @@ async function fetchBuilds(){
     const data=await res.json();
     if(!res.ok||data.error){el.innerHTML=`<div style="padding:10px;color:var(--red)">Error: ${data.error||"Request failed"}</div>`;return;}
     if(!data.length){el.innerHTML=`<div style="padding:10px;color:var(--muted)">No builds found for these criteria</div>`;return;}
-    el.innerHTML=data.map(b=>`<div class="bi${b.id===selBuildId?" sel":""}" onclick="pickBuild(${JSON.stringify(b.id)},${JSON.stringify(b.build+" — "+b.title)},this)"><div class="bv">${b.build}</div><div class="br">${b.title} &mdash; <em>${b.ring}</em></div></div>`).join("");
+    el.innerHTML=data.map(b=>`<div class="bi${b.id===selBuildId?" sel":""}" onclick="pickBuild(${JSON.stringify(b.id)},${JSON.stringify(b.build+" — "+b.title)},this)"><div class="bv">${b.build}</div><div class="br">${b.title}</div></div>`).join("");
   }catch(e){el.innerHTML=`<div style="padding:10px;color:var(--red)">Request failed: ${e.message}</div>`;}
   finally{sp.style.display="none";}
 }

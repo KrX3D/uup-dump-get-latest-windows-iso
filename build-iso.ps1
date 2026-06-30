@@ -60,6 +60,13 @@ if ($_sfPath) {
     }
 }
 
+function Write-BuildStatus {
+    param([string]$Status)
+    if ($script:UseStatusFile) {
+        try { ('{"status":"' + $Status + '"}') | Set-Content $script:StatusFilePath -Encoding UTF8 } catch {}
+    }
+}
+
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
     $ts   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC')
@@ -92,9 +99,7 @@ trap {
     if ($script:WorkDirectory -and (Test-Path $script:WorkDirectory)) {
         Remove-Item -Force -Recurse $script:WorkDirectory -ErrorAction SilentlyContinue
     }
-    if ($script:UseStatusFile) {
-        try { '{"status":"failed"}' | Set-Content $script:StatusFilePath -Encoding UTF8 } catch {}
-    }
+    Write-BuildStatus 'failed'
     exit 1
 }
 
@@ -156,6 +161,7 @@ $TARGETS = @{
 
 if (-not $TARGETS.ContainsKey($WindowsTarget)) {
     Write-Log "Unknown WINDOWS_TARGET '$WindowsTarget'. Valid values: $($TARGETS.Keys -join ', ')" 'ERROR'
+    Write-BuildStatus 'failed'
     exit 1
 }
 
@@ -269,6 +275,7 @@ $iso = Get-UupDumpIso $WindowsTarget $TARGETS.$WindowsTarget $Ring $BuildId
 
 if (-not $iso) {
     Write-Log "No matching build found for $WindowsTarget ($Language / $Edition)" 'ERROR'
+    Write-BuildStatus 'failed'
     exit 1
 }
 
@@ -297,6 +304,7 @@ $existingIso = Get-ChildItem $OutputDirectory -Filter "$buildMajor.$buildMinor.*
 if ($existingIso) {
     Write-Log "ISO for build $($iso.build) already present: $($existingIso.Name)"
     Write-Log "Nothing to do."
+    Write-BuildStatus 'done'
     exit 0
 }
 
@@ -432,6 +440,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     $linuxScript = Join-Path $buildDirectory 'uup_download_linux.sh'
     if (-not (Test-Path $linuxScript)) {
         Write-Log "uup_download_linux.sh not found in package — cannot continue" 'ERROR'
+        Write-BuildStatus 'failed'
         exit 1
     }
 
@@ -607,7 +616,4 @@ Get-ChildItem $OutputDirectory | Where-Object { -not $_.PSIsContainer } | Sort-O
 Write-Log "=================================================="
 Write-Log "Done: $destName"
 Write-Log "=================================================="
-
-if ($script:UseStatusFile) {
-    try { '{"status":"done"}' | Set-Content $script:StatusFilePath -Encoding UTF8 } catch {}
-}
+Write-BuildStatus 'done'
