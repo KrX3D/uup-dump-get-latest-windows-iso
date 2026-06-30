@@ -749,9 +749,10 @@ function setStatus(s){
   badge.className="badge b-"+curStatus;
   txt.textContent={idle:"Idle",running:"Building...",done:"Done",failed:"Failed",stopped:"Stopped"}[curStatus]||"Idle";
   dot.className="dot"+(curStatus==="running"?" pulsing":"");
-  if(curStatus!=="running"){
-    document.getElementById("startBtn").disabled=false;
-    document.getElementById("stopBtn").style.display="none";
+  const running=curStatus==="running";
+  document.getElementById("startBtn").disabled=running;
+  document.getElementById("stopBtn").style.display=running?"":"none";
+  if(!running){
     if(curStatus==="done"){toast("Build complete!");loadOutputs();}
     if(curStatus==="failed")toast("Build failed — check the log","var(--red)");
     if(curStatus==="stopped")toast("Build stopped","var(--yellow)");
