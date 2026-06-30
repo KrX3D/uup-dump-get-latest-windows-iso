@@ -63,7 +63,13 @@ if ($_sfPath) {
 function Write-BuildStatus {
     param([string]$Status)
     if ($script:UseStatusFile) {
-        try { ('{"status":"' + $Status + '"}') | Set-Content $script:StatusFilePath -Encoding UTF8 } catch {}
+        # Always include pid (this process's own $PID, same value Start-WebBuild
+        # captured at launch) — earlier this only wrote {"status":"..."}, which
+        # erased the pid the web UI needs to find this process for Stop/poll.
+        try {
+            (@{ status = $Status; pid = $PID } | ConvertTo-Json -Compress) |
+                Set-Content $script:StatusFilePath -Encoding UTF8
+        } catch {}
     }
 }
 
@@ -118,7 +124,7 @@ if ($Mode -eq 'web') {
 
 if ($script:UseStatusFile) {
     New-Item -ItemType Directory -Force (Split-Path $script:StatusFilePath) | Out-Null
-    '{"status":"running"}' | Set-Content $script:StatusFilePath -Encoding UTF8
+    Write-BuildStatus 'running'
 }
 
 # Blank-line separator between runs in the rolling log
@@ -414,11 +420,14 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         'Microsoft.Whiteboard_8wekyb3d8bbwe',
         'microsoft.microsoftskydrive_8wekyb3d8bbwe'
     )
-    $enabledApps = if ($settingsData -and $settingsData.enabledApps -and @($settingsData.enabledApps).Count -gt 0) {
+    # @(...) around the whole if/else: a single-element array returned from an
+    # if-block gets unrolled to a scalar by the output stream, which then fails
+    # .Count under Set-StrictMode when exactly one app is selected.
+    $enabledApps = @(if ($settingsData -and $settingsData.enabledApps -and @($settingsData.enabledApps).Count -gt 0) {
         @($settingsData.enabledApps)
     } else {
         $allKnownApps
-    }
+    })
     $appsPath    = Join-Path $buildDirectory 'CustomAppsList.txt'
     $appsContent = Get-Content $appsPath
     $appsContent = $appsContent | ForEach-Object {

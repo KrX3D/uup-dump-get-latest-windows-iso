@@ -23,7 +23,9 @@ function Start-WebUi {
     New-Item -ItemType Directory -Force $LogDirectory  | Out-Null
     $script:webSettingsPath    = '/config/settings.json'
     $script:webStatusPath      = '/config/build-status.json'
-    $script:webCurrentBuildLog = Join-Path $LogDirectory 'current-build.log'
+    # Lives outside any user-mounted volume — the GUI log window is the only
+    # place this content should be visible, not the mounted log share.
+    $script:webCurrentBuildLog = '/tmp/current-build.log'
 
     # Reset stale 'running' status — no build can be running when the web server just started.
     $_st = if (Test-Path $script:webStatusPath) {
@@ -91,7 +93,7 @@ function Write-WebJson {
     param($res, $obj, [int]$code = 200)
     $res.StatusCode    = $code
     $res.ContentType   = 'application/json; charset=utf-8'
-    $json  = $obj | ConvertTo-Json -Depth 10 -Compress
+    $json  = ConvertTo-Json -InputObject $obj -Depth 10 -Compress
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
     $res.ContentLength64 = $bytes.Length
     $res.OutputStream.Write($bytes, 0, $bytes.Length)
@@ -244,20 +246,31 @@ function Start-WebBuild {
 }
 
 function Stop-ProcessTree {
-    param([int]$Pid)
+    # NOTE: do not name this parameter $Pid — it shadows PowerShell's automatic
+    # $PID variable (current process ID) and is read-only, so binding to it
+    # throws "Cannot overwrite variable Pid" and silently kills nothing.
+    param([int]$TargetPid)
     # Kill children first (bash, aria2, converter) before the parent pwsh
-    $children = @(& pgrep -P $Pid 2>/dev/null) | Where-Object { $_ -match '^\d+$' }
-    foreach ($c in $children) { Stop-ProcessTree ([int]$c) }
-    try { Stop-Process -Id $Pid -Force -EA SilentlyContinue } catch {}
+    $children = @(& pgrep -P $TargetPid 2>/dev/null) | Where-Object { $_ -match '^\d+$' }
+    foreach ($c in $children) { Stop-ProcessTree -TargetPid ([int]$c) }
+    try { Stop-Process -Id $TargetPid -Force -EA SilentlyContinue } catch {}
 }
 
 function Stop-WebBuild {
     param($res)
     if (Test-Path $script:webStatusPath) {
         $st = Get-Content $script:webStatusPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
-        if ($st -and $st.pid) {
-            Stop-ProcessTree ([int]$st.pid)
+        # Check status before dereferencing .pid — under Set-StrictMode, accessing
+        # a property that doesn't exist (e.g. idle/done states written without pid)
+        # throws instead of returning $null.
+        if ($st -and $st.status -eq 'running' -and $st.pid) {
+            Stop-ProcessTree -TargetPid ([int]$st.pid)
         }
+    }
+    # Give killed processes a moment to release file handles, then wipe partial build artifacts.
+    Start-Sleep -Milliseconds 500
+    if (Test-Path $script:webWorkDir) {
+        Get-ChildItem $script:webWorkDir -Force -EA SilentlyContinue | Remove-Item -Recurse -Force -EA SilentlyContinue
     }
     @{ status = 'idle' } | ConvertTo-Json | Set-Content $script:webStatusPath -Encoding UTF8
     Write-WebJson $res @{ ok = $true }
