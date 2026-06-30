@@ -75,7 +75,7 @@ function Write-BuildStatus {
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
-    $ts   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC')
+    $ts   = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     $line = "[$ts] [$Level] $Message"
     Write-Host $line
     try { Add-Content -Path $script:RollingLog -Value $line -Encoding UTF8 } catch {}

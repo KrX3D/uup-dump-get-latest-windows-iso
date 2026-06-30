@@ -68,4 +68,5 @@ Logs: a rolling uup-dump.log plus one per-run log named YYYY-MM-DD_build_target_
   <Config Name="Edition" Target="EDITION" Default="Professional" Mode="" Description="Windows edition: Professional, Home, ServerStandard, ServerDatacenter. Overridden by web UI settings when MODE=web." Type="Variable" Display="always" Required="false" Mask="false">Professional</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file ownership (Unraid default: nobody = 99)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file ownership (Unraid default: users = 100)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Timezone for log timestamps, e.g. Europe/Berlin, America/New_York, Asia/Tokyo. See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones for valid values." Type="Variable" Display="advanced" Required="false" Mask="false">UTC</Config>
 </Container>

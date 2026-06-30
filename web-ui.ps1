@@ -258,7 +258,7 @@ function Stop-ProcessTree {
 
 function Write-WebStopLog {
     param([string]$Message)
-    $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC')
+    $ts = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     try { Add-Content -Path $script:webCurrentBuildLog -Value "[$ts] [STOPPED] $Message" -Encoding UTF8 } catch {}
 }
 
@@ -611,7 +611,7 @@ const APPS = [
   ["microsoft.microsoftskydrive_8wekyb3d8bbwe","OneDrive"],
 ];
 
-let selBuildId=null, selBuildLabel=null, logOff=0, curStatus="idle";
+let selBuildId=null, selBuildLabel=null, logOff=0, curStatus="idle", polling=false;
 
 window.addEventListener("DOMContentLoaded",()=>{
   document.getElementById("convOpts").innerHTML = COPTS.map(o=>
@@ -728,12 +728,13 @@ async function stopBuild(){
 }
 
 async function poll(){
+  if(polling)return;polling=true;
   try{
     const r=await fetch(`/api/log?offset=${logOff}`);
     const d=await r.json();
     if(d.lines&&d.lines.length){d.lines.forEach(l=>appendLog(l));logOff=d.nextOffset;}
     setStatus(d.status);
-  }catch{}
+  }catch{}finally{polling=false;}
 }
 function appendLog(line){
   const log=document.getElementById("log");
