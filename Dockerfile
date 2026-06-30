@@ -4,7 +4,7 @@ LABEL org.opencontainers.image.source="https://github.com/KrX3D/uup-dump-get-lat
 LABEL org.opencontainers.image.description="Downloads and creates Windows ISO files using UUP dump"
 LABEL org.opencontainers.image.licenses="MIT"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
     wimtools \
     genisoimage \
@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bc \
     openssl \
     gosu \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Bundle UUP converter files (MIT license, uup-dump/converter) to avoid

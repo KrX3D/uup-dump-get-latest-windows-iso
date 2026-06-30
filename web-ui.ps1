@@ -349,6 +349,7 @@ function Get-WebUiHtml {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/icon.png">
 <title>UUP Dump ISO Builder</title>
 <style>
 :root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#e3b341}
@@ -741,6 +742,7 @@ function appendLog(line){
   const atBot=log.scrollHeight-log.scrollTop<=log.clientHeight+60;
   const d=document.createElement("div");
   d.className=line.includes("[ERROR]")?"le":line.includes("[WARN")||line.includes("[STOPPED]")?"lw":line.match(/^=/)?"ls":"li";
+  if(line.match(/^\s*\*\*\*/)){const sp=document.createElement("div");sp.textContent="";log.appendChild(sp);}
   d.textContent=line;log.appendChild(d);
   if(atBot)log.scrollTop=log.scrollHeight;
 }
