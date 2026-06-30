@@ -25,7 +25,11 @@ function Start-WebUi {
     $script:webStatusPath      = '/config/build-status.json'
     $script:webCurrentBuildLog = Join-Path $LogDirectory 'current-build.log'
 
-    if (-not (Test-Path $script:webStatusPath)) {
+    # Reset stale 'running' status — no build can be running when the web server just started.
+    $_st = if (Test-Path $script:webStatusPath) {
+        Get-Content $script:webStatusPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
+    }
+    if (-not $_st -or $_st.status -eq 'running') {
         '{"status":"idle"}' | Set-Content $script:webStatusPath -Encoding UTF8
     }
 
@@ -355,13 +359,6 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
 .pulsing{animation:pulse 1.4s ease-in-out infinite}
 #log{background:#010409;border:1px solid var(--border);border-radius:5px;padding:10px 12px;font:11.5px/1.7 Consolas,"Courier New",monospace;height:calc(100vh - 370px);min-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 .li{color:var(--muted)} .le{color:var(--red)} .lw{color:var(--yellow)} .ls{color:var(--accent);font-weight:600}
-.builds-box{border:1px solid var(--border);border-radius:5px;max-height:170px;overflow-y:auto}
-.bi{padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:11px}
-.bi:last-child{border-bottom:none}
-.bi:hover{background:rgba(88,166,255,.07)}
-.bi.sel{background:rgba(88,166,255,.13);border-left:2px solid var(--accent)}
-.bi .bv{font-weight:600;color:var(--text)}
-.bi .br{color:var(--muted);font-size:10px}
 .spinner{display:inline-block;width:10px;height:10px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toast{position:fixed;bottom:14px;right:14px;padding:6px 14px;border-radius:5px;font-size:12px;font-weight:600;opacity:0;transform:translateY(6px);transition:all .22s;pointer-events:none}
@@ -399,7 +396,47 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
       </div>
       <div class="row">
         <div class="field"><label class="lbl">Language</label>
-          <input type="text" id="language" value="de-de" placeholder="de-de / en-us / fr-fr"></div>
+          <select id="language">
+            <option value="ar-sa">Arabic</option>
+            <option value="bg-bg">Bulgarian</option>
+            <option value="cs-cz">Czech</option>
+            <option value="da-dk">Danish</option>
+            <option value="de-de" selected>German</option>
+            <option value="el-gr">Greek</option>
+            <option value="en-gb">English (UK)</option>
+            <option value="en-us">English (US)</option>
+            <option value="es-es">Spanish</option>
+            <option value="es-mx">Spanish (Mexico)</option>
+            <option value="et-ee">Estonian</option>
+            <option value="fi-fi">Finnish</option>
+            <option value="fr-ca">French (Canada)</option>
+            <option value="fr-fr">French</option>
+            <option value="he-il">Hebrew</option>
+            <option value="hr-hr">Croatian</option>
+            <option value="hu-hu">Hungarian</option>
+            <option value="id-id">Indonesian</option>
+            <option value="it-it">Italian</option>
+            <option value="ja-jp">Japanese</option>
+            <option value="ko-kr">Korean</option>
+            <option value="lt-lt">Lithuanian</option>
+            <option value="lv-lv">Latvian</option>
+            <option value="nb-no">Norwegian</option>
+            <option value="nl-nl">Dutch</option>
+            <option value="pl-pl">Polish</option>
+            <option value="pt-br">Portuguese (BR)</option>
+            <option value="pt-pt">Portuguese (PT)</option>
+            <option value="ro-ro">Romanian</option>
+            <option value="ru-ru">Russian</option>
+            <option value="sk-sk">Slovak</option>
+            <option value="sl-si">Slovenian</option>
+            <option value="sr-latn-rs">Serbian (Latin)</option>
+            <option value="sv-se">Swedish</option>
+            <option value="th-th">Thai</option>
+            <option value="tr-tr">Turkish</option>
+            <option value="uk-ua">Ukrainian</option>
+            <option value="zh-cn">Chinese (Simplified)</option>
+            <option value="zh-tw">Chinese (Traditional)</option>
+          </select></div>
         <div class="field"><label class="lbl">Edition</label>
           <select id="edition">
             <option value="Professional" selected>Professional</option>
@@ -414,20 +451,19 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
 
     <div class="card">
       <div class="card-hdr">
-        <h2>Available Builds</h2>
+        <h2>Version</h2>
         <div style="display:flex;gap:5px;align-items:center">
           <span id="bSpin" style="display:none"><span class="spinner"></span></span>
           <button class="btn btn-s btn-xs" onclick="fetchBuilds()">Fetch</button>
-          <button class="btn btn-s btn-xs" id="bClear" onclick="clearBuild()" style="display:none">Clear</button>
         </div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:7px">
-        Click <b>Fetch</b> to list available builds from UUP dump for the selected OS.<br>
-        Click a build to <b>pin</b> it — the next build will download that exact version instead of the latest.<br>
-        Leave unpinned to always build the newest available release.
+        Click <b>Fetch</b> to load available builds. Select "Latest" to always use the newest, or pick a specific version to pin it.
       </div>
-      <div id="bList" class="builds-box" style="padding:10px;color:var(--muted);font-size:11px">No builds loaded yet.</div>
-      <div id="bPin" style="display:none;margin-top:7px;font-size:11px;color:var(--accent)"></div>
+      <select id="bSelect">
+        <option value="">Latest (auto)</option>
+      </select>
+      <div id="bPin" style="display:none;margin-top:4px;font-size:11px;color:var(--accent)"></div>
     </div>
 
     <div class="card">
@@ -550,6 +586,14 @@ window.addEventListener("DOMContentLoaded",()=>{
   renderApps();
   loadConfig();
   loadOutputs();
+  document.getElementById("bSelect").addEventListener("change",function(){
+    selBuildId=this.value||null;
+    selBuildLabel=selBuildId?this.options[this.selectedIndex].text:null;
+    const p=document.getElementById("bPin");
+    if(selBuildId){p.style.display="";p.textContent="Pinned: "+selBuildLabel;}
+    else p.style.display="none";
+  });
+  poll();
   setInterval(poll,2000);
 });
 
@@ -572,7 +616,16 @@ function applyConfig(c){
   if(c.edition)document.getElementById("edition").value=c.edition;
   if(c.convertConfig)COPTS.forEach(o=>{const cb=document.getElementById("c_"+o.k);if(cb&&c.convertConfig[o.k]!==undefined)cb.checked=!!c.convertConfig[o.k];});
   if(c.enabledApps)renderApps(c.enabledApps);
-  if(c.buildId){selBuildId=c.buildId;selBuildLabel=c.buildLabel||c.buildId;pinBuild();}
+  if(c.buildId){
+    selBuildId=c.buildId;selBuildLabel=c.buildLabel||c.buildId;
+    const sel=document.getElementById("bSelect");
+    if(sel&&!Array.from(sel.options).find(o=>o.value===c.buildId)){
+      sel.appendChild(new Option(c.buildLabel||c.buildId,c.buildId));
+    }
+    if(sel)sel.value=c.buildId;
+    const p=document.getElementById("bPin");
+    if(p){p.style.display="";p.textContent="Pinned: "+selBuildLabel;}
+  }
   const wc=document.getElementById("o_chk"),wm=document.getElementById("o_meta");
   if(wc&&c.writeChecksum!==undefined)wc.checked=!!c.writeChecksum;
   if(wm&&c.writeMetadata!==undefined)wm.checked=!!c.writeMetadata;
@@ -602,32 +655,25 @@ function toast(msg,col){
 }
 
 async function fetchBuilds(){
-  const t=document.getElementById("winTarget").value,l=document.getElementById("language").value,r=document.getElementById("ring").value;
-  const el=document.getElementById("bList"),sp=document.getElementById("bSpin");
-  el.innerHTML=`<div style="padding:10px;color:var(--muted)"><span class="spinner"></span> Fetching...</div>`;
+  const t=document.getElementById("winTarget").value;
+  const sel=document.getElementById("bSelect"),sp=document.getElementById("bSpin");
   sp.style.display="inline";
   try{
-    const res=await fetch(`/api/builds?target=${encodeURIComponent(t)}&lang=${encodeURIComponent(l)}&ring=${encodeURIComponent(r)}`);
+    const res=await fetch(`/api/builds?target=${encodeURIComponent(t)}`);
     const data=await res.json();
-    if(!res.ok||data.error){el.innerHTML=`<div style="padding:10px;color:var(--red)">Error: ${data.error||"Request failed"}</div>`;return;}
-    if(!data.length){el.innerHTML=`<div style="padding:10px;color:var(--muted)">No builds found for these criteria</div>`;return;}
-    el.innerHTML=data.map(b=>`<div class="bi${b.id===selBuildId?" sel":""}" onclick="pickBuild(${JSON.stringify(b.id)},${JSON.stringify(b.build+" — "+b.title)},this)"><div class="bv">${b.build}</div><div class="br">${b.title}</div></div>`).join("");
-  }catch(e){el.innerHTML=`<div style="padding:10px;color:var(--red)">Request failed: ${e.message}</div>`;}
+    if(!res.ok||data.error){toast("Fetch error: "+(data.error||"Request failed"),"var(--red)");return;}
+    if(!data.length){toast("No builds found for this OS","var(--yellow)");return;}
+    const prev=selBuildId;
+    sel.innerHTML=`<option value="">Latest (auto)</option>`+
+      data.map(b=>`<option value="${b.id}">${b.build} - ${b.title}</option>`).join("");
+    sel.value=prev||"";
+    selBuildId=sel.value||null;
+    selBuildLabel=selBuildId?sel.options[sel.selectedIndex].text:null;
+    const p=document.getElementById("bPin");
+    if(selBuildId){p.style.display="";p.textContent="Pinned: "+selBuildLabel;}
+    else p.style.display="none";
+  }catch(e){toast("Request failed: "+e.message,"var(--red)");}
   finally{sp.style.display="none";}
-}
-function pickBuild(id,label,el){
-  document.querySelectorAll(".bi").forEach(e=>e.classList.remove("sel"));
-  el.classList.add("sel");selBuildId=id;selBuildLabel=label;pinBuild();
-}
-function pinBuild(){
-  const p=document.getElementById("bPin"),c=document.getElementById("bClear");
-  p.style.display="";p.textContent="Pinned: "+selBuildLabel;c.style.display="";
-}
-function clearBuild(){
-  selBuildId=null;selBuildLabel=null;
-  document.querySelectorAll(".bi").forEach(e=>e.classList.remove("sel"));
-  document.getElementById("bPin").style.display="none";
-  document.getElementById("bClear").style.display="none";
 }
 
 async function startBuild(){
@@ -638,6 +684,7 @@ async function startBuild(){
   const r=await fetch("/api/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(getConfig())});
   const j=await r.json();
   if(!r.ok){toast("Error: "+(j.error||"Failed to start"),"var(--red)");document.getElementById("startBtn").disabled=false;document.getElementById("stopBtn").style.display="none";}
+  else poll();
 }
 async function stopBuild(){
   if(!confirm("Stop the running build? Partial downloads are kept for a retry."))return;
