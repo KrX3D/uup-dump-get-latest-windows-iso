@@ -496,8 +496,14 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 
     Push-Location $buildDirectory
     try {
-        # Tee-Object writes bash output to both Docker stdout and the per-run log file
-        & bash ./uup_download_linux.sh 2>&1 | Tee-Object -Append -FilePath $script:RunLogFile
+        # Pipe bash output to per-run log; also to current-build.log when the web UI is active
+        if ($script:CurrentBuildLog) {
+            & bash ./uup_download_linux.sh 2>&1 |
+                Tee-Object -Append -FilePath $script:RunLogFile |
+                Tee-Object -Append -FilePath $script:CurrentBuildLog
+        } else {
+            & bash ./uup_download_linux.sh 2>&1 | Tee-Object -Append -FilePath $script:RunLogFile
+        }
         $_exitCode = $LASTEXITCODE
     } finally {
         Pop-Location
