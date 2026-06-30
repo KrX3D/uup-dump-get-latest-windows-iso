@@ -243,12 +243,20 @@ function Start-WebBuild {
     Write-WebJson $res @{ ok = $true; pid = $proc.Id }
 }
 
+function Stop-ProcessTree {
+    param([int]$Pid)
+    # Kill children first (bash, aria2, converter) before the parent pwsh
+    $children = @(& pgrep -P $Pid 2>/dev/null) | Where-Object { $_ -match '^\d+$' }
+    foreach ($c in $children) { Stop-ProcessTree ([int]$c) }
+    try { Stop-Process -Id $Pid -Force -EA SilentlyContinue } catch {}
+}
+
 function Stop-WebBuild {
     param($res)
     if (Test-Path $script:webStatusPath) {
         $st = Get-Content $script:webStatusPath -Raw -EA SilentlyContinue | ConvertFrom-Json -EA SilentlyContinue
         if ($st -and $st.pid) {
-            try { Stop-Process -Id ([int]$st.pid) -Force -EA Stop } catch {}
+            Stop-ProcessTree ([int]$st.pid)
         }
     }
     @{ status = 'idle' } | ConvertTo-Json | Set-Content $script:webStatusPath -Encoding UTF8
