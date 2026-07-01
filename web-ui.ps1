@@ -26,6 +26,8 @@ function Start-WebUi {
     # Lives outside any user-mounted volume — the GUI log window is the only
     # place this content should be visible, not the mounted log share.
     $script:webCurrentBuildLog = '/tmp/current-build.log'
+    # Clear any leftover shutdown flag from a previous run.
+    Remove-Item -Force '/tmp/container-shutdown' -EA SilentlyContinue
 
     # Reset stale 'running' status — no build can be running when the web server just started.
     $_st = if (Test-Path $script:webStatusPath) {
@@ -50,7 +52,15 @@ function Start-WebUi {
         $task = $null
         try { $task = $listener.GetContextAsync() } catch { break }
 
-        while (-not $task.IsCompleted) { Start-Sleep -Milliseconds 100 }
+        $_tick = 0
+        while (-not $task.IsCompleted) {
+            Start-Sleep -Milliseconds 100
+            # Check shutdown flag once per second (every 10 × 100ms ticks).
+            if ((++$_tick % 10) -eq 0 -and (Test-Path '/tmp/container-shutdown')) {
+                $listener.Stop()
+                return
+            }
+        }
         if ($task.IsFaulted -or $task.IsCanceled) { continue }
 
         $ctx = $task.Result

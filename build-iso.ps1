@@ -81,7 +81,12 @@ function Invoke-ContainerShutdown {
     # Sleep long enough for the browser to receive the final status poll (2s interval × 3 cycles).
     Write-Log "Container will shut down in 6 seconds..."
     Start-Sleep -Seconds 6
-    Stop-Process -Id 1 -Force
+    # Directly killing PID 1 from within a container's PID namespace is blocked by
+    # the Linux kernel. Instead, write a flag file the web server's loop polls for,
+    # so PID 1 exits its own loop cleanly.
+    New-Item -ItemType File -Path '/tmp/container-shutdown' -Force -EA SilentlyContinue | Out-Null
+    # Keep this process alive briefly so the web server has time to detect the flag.
+    Start-Sleep -Seconds 3
 }
 
 function Write-Log {
