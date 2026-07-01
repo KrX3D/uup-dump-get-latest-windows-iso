@@ -513,6 +513,8 @@ select:focus,input:focus{outline:none;border-color:var(--accent)}
           <span><span class="cbl">Generate .sha256.txt</span><span class="cbd">Write SHA-256 checksum file alongside the ISO</span></span></label>
         <label class="cb"><input type="checkbox" id="o_meta" checked>
           <span><span class="cbl">Generate .json metadata</span><span class="cbd">Write build info JSON (title, build number, UUP dump ID)</span></span></label>
+        <label class="cb"><input type="checkbox" id="o_shutdown" checked>
+          <span><span class="cbl">Shut down container after build</span><span class="cbd">Stop the Docker container automatically when the build completes or fails (not when manually stopped)</span></span></label>
       </div>
     </div>
 
@@ -661,9 +663,10 @@ function applyConfig(c){
     const p=document.getElementById("bPin");
     if(p){p.style.display="";p.textContent="Pinned: "+selBuildLabel;}
   }
-  const wc=document.getElementById("o_chk"),wm=document.getElementById("o_meta");
+  const wc=document.getElementById("o_chk"),wm=document.getElementById("o_meta"),ws=document.getElementById("o_shutdown");
   if(wc&&c.writeChecksum!==undefined)wc.checked=!!c.writeChecksum;
   if(wm&&c.writeMetadata!==undefined)wm.checked=!!c.writeMetadata;
+  if(ws&&c.shutdownAfterBuild!==undefined)ws.checked=!!c.shutdownAfterBuild;
 }
 function getConfig(){
   const cc={};COPTS.forEach(o=>{cc[o.k]=!!(document.getElementById("c_"+o.k)?.checked);});
@@ -678,6 +681,7 @@ function getConfig(){
     enabledApps:[...document.querySelectorAll(".acb:checked")].map(c=>c.dataset.id),
     writeChecksum:document.getElementById("o_chk")?.checked??true,
     writeMetadata:document.getElementById("o_meta")?.checked??true,
+    shutdownAfterBuild:document.getElementById("o_shutdown")?.checked??true,
   };
 }
 async function saveConfig(){

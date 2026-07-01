@@ -38,6 +38,7 @@ $script:buildDirectory   = $null
 $script:CurrentBuildLog  = $CurrentBuildLog
 $script:StatusFilePath   = '/config/build-status.json'
 $script:UseStatusFile    = ($CurrentBuildLog -ne '')
+$script:ShutdownAfterBuild = $true   # updated after settings load; default matches UI default
 $script:RollingLog       = Join-Path $LogDirectory 'uup-dump.log'
 $script:RunStartTime     = (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss')
 $script:RunLogFile       = Join-Path $LogDirectory ('{0}_{1}_{2}_{3}.log' -f
@@ -57,6 +58,9 @@ if ($_sfPath) {
     if ($settingsData) {
         if ($null -ne $settingsData.writeChecksum) { $WriteChecksum = [bool]$settingsData.writeChecksum }
         if ($null -ne $settingsData.writeMetadata) { $WriteMetadata = [bool]$settingsData.writeMetadata }
+        if ($settingsData.PSObject.Properties.Name -contains 'shutdownAfterBuild') {
+            $script:ShutdownAfterBuild = [bool]$settingsData.shutdownAfterBuild
+        }
     }
 }
 
@@ -71,6 +75,13 @@ function Write-BuildStatus {
                 Set-Content $script:StatusFilePath -Encoding UTF8
         } catch {}
     }
+}
+
+function Invoke-ContainerShutdown {
+    # Sleep long enough for the browser to receive the final status poll (2s interval × 3 cycles).
+    Write-Log "Container will shut down in 6 seconds..."
+    Start-Sleep -Seconds 6
+    Stop-Process -Id 1 -Force
 }
 
 function Write-Log {
@@ -106,6 +117,7 @@ trap {
         Remove-Item -Force -Recurse $script:WorkDirectory -ErrorAction SilentlyContinue
     }
     Write-BuildStatus 'failed'
+    if ($script:ShutdownAfterBuild -and $script:UseStatusFile) { Invoke-ContainerShutdown }
     exit 1
 }
 
@@ -311,6 +323,7 @@ if ($existingIso) {
     Write-Log "ISO for build $($iso.build) already present: $($existingIso.Name)"
     Write-Log "Nothing to do."
     Write-BuildStatus 'done'
+    if ($script:ShutdownAfterBuild -and $script:UseStatusFile) { Invoke-ContainerShutdown }
     exit 0
 }
 
@@ -632,3 +645,4 @@ Write-Log "=================================================="
 Write-Log "Done: $destName"
 Write-Log "=================================================="
 Write-BuildStatus 'done'
+if ($script:ShutdownAfterBuild -and $script:UseStatusFile) { Invoke-ContainerShutdown }
