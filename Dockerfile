@@ -4,10 +4,12 @@ LABEL org.opencontainers.image.source="https://github.com/KrX3D/uup-dump-get-lat
 LABEL org.opencontainers.image.description="Downloads and creates Windows ISO files using UUP dump"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# qemu-system-x86 + ntfs-3g + fuse + xorriso: EXPERIMENTAL WinPE/DISM update
-# integration (see winpe-updates.ps1). ovmf is unused by default (legacy BIOS
-# boot via built-in SeaBIOS is used instead) but kept available in case the
-# ISO's boot catalog turns out to need -bios OVMF.fd for UEFI boot.
+# qemu-system-x86 + ntfs-3g + fuse3 + xorriso: EXPERIMENTAL WinPE/DISM update
+# integration (see winpe-updates.ps1). Ubuntu 22.04 has moved to fuse3 (the
+# legacy 'fuse' package conflicts with it — "fuse3 : Breaks: fuse" — since
+# fuse3 is already pulled in transitively). ovmf is unused by default (legacy
+# BIOS boot via built-in SeaBIOS is used instead) but kept available in case
+# the ISO's boot catalog turns out to need -bios OVMF.fd for UEFI boot.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
     wimtools \
@@ -17,7 +19,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-ins
     cabextract \
     chntpw \
     ntfs-3g \
-    fuse \
+    fuse3 \
     qemu-system-x86 \
     ovmf \
     curl \
