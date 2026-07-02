@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>uup-dump-windows-iso-experimental</Name>
+  <Repository>ghcr.io/krx3d/uup-dump-get-latest-windows-iso:experimental-winpe-dism-updates</Repository>
+  <Registry>https://github.com/KrX3D/uup-dump-get-latest-windows-iso/pkgs/container/uup-dump-get-latest-windows-iso</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/KrX3D/uup-dump-get-latest-windows-iso/issues</Support>
+  <Project>https://github.com/KrX3D/uup-dump-get-latest-windows-iso/tree/experimental/winpe-dism-updates</Project>
+  <Overview>EXPERIMENTAL, not the main image. Same as uup-dump-windows-iso, but adds a WinPE/QEMU/KVM step that runs real DISM to actually integrate Windows updates into the ISO. Needs /dev/kvm and /dev/fuse. Test only -- see EXPERIMENTAL.md in the repo.</Overview>
+  <Category>Tools: Utilities:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/experimental/winpe-dism-updates/unraid-template.experimental.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/KrX3D/uup-dump-get-latest-windows-iso/main/icon.png</Icon>
+  <ExtraParams>--restart=no --device=/dev/kvm --device=/dev/fuse --cap-add=SYS_ADMIN</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Description>
+EXPERIMENTAL build -- see https://github.com/KrX3D/uup-dump-get-latest-windows-iso/blob/experimental/winpe-dism-updates/EXPERIMENTAL.md before using.[br][br]
+Adds a step that boots the ISO's own boot.wim under QEMU/KVM to run real dism.exe /Add-Package against install.wim, so "Include Windows Updates" actually gets slipstreamed instead of being a no-op (see main image's known limitation on Linux/wimlib).[br][br]
+Requires the Unraid host to have KVM available (Settings -> VM Manager enabled) and the /dev/kvm + /dev/fuse devices + SYS_ADMIN capability set via ExtraParams (already included in this template).[br][br]
+If /dev/kvm is missing, or any step of the WinPE integration fails, the build falls back to an unpatched ISO and logs a warning -- it should never break a build outright, but this path is untested on real hardware. Please report results (success or failure, with winpe-dism-run.log from the Log Directory) on the GitHub issue tracker.
+  </Description>
+  <Networking>
+    <Mode>bridge</Mode>
+    <Publish/>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/user/isos/windows-experimental</HostDir>
+      <ContainerDir>/output</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/isos/windows-experimental</HostDir>
+      <ContainerDir>/logs</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/appdata/uup-dump-windows-iso-experimental</HostDir>
+      <ContainerDir>/config</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Environment/>
+  <Labels/>
+  <Config Name="ISO Output Path" Target="/output" Default="/mnt/user/isos/windows-experimental" Mode="rw" Description="Where the finished ISO, checksum, and metadata files are saved." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows-experimental</Config>
+  <Config Name="Log Directory" Target="/logs" Default="/mnt/user/isos/windows-experimental" Mode="rw" Description="Where uup-dump.log, per-run logs, and winpe-dism-run.log are written." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos/windows-experimental</Config>
+  <Config Name="Config Directory" Target="/config" Default="/mnt/user/appdata/uup-dump-windows-iso-experimental" Mode="rw" Description="Stores settings.json and build logs for the web UI." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/uup-dump-windows-iso-experimental</Config>
+  <Config Name="Web UI Port" Target="8080" Default="8080" Mode="tcp" Description="Port for the web configuration UI. Only active when MODE=web." Type="Port" Display="always" Required="false" Mask="false">8080</Config>
+  <Config Name="Mode" Target="MODE" Default="auto" Mode="" Description="auto = build on container start. web = start the configuration web UI instead." Type="Variable" Display="always" Required="false" Mask="false">auto</Config>
+  <Config Name="EXPERIMENTAL_WINPE_UPDATES" Target="EXPERIMENTAL_WINPE_UPDATES" Default="1" Mode="" Description="1 = attempt real DISM update integration via WinPE/QEMU when 'Include Windows Updates' is checked. 0 = behave exactly like the main image (no-op with a warning)." Type="Variable" Display="always" Required="false" Mask="false">1</Config>
+  <Config Name="Windows Target" Target="WINDOWS_TARGET" Default="windows-11" Mode="" Description="windows-11, windows-10, or windows-2022." Type="Variable" Display="always" Required="true" Mask="false">windows-11</Config>
+  <Config Name="Windows Ring" Target="WINDOWS_RING" Default="RETAIL" Mode="" Description="RETAIL, DEV, BETA, CANARY, RP, or ANY." Type="Variable" Display="always" Required="false" Mask="false">RETAIL</Config>
+  <Config Name="Language" Target="LANGUAGE" Default="de-de" Mode="" Description="Language pack, e.g. de-de, en-us." Type="Variable" Display="always" Required="false" Mask="false">de-de</Config>
+  <Config Name="Edition" Target="EDITION" Default="Professional" Mode="" Description="Professional, Home, ServerStandard, ServerDatacenter." Type="Variable" Display="always" Required="false" Mask="false">Professional</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file ownership." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file ownership." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Timezone for log timestamps." Type="Variable" Display="advanced" Required="false" Mask="false">UTC</Config>
+</Container>

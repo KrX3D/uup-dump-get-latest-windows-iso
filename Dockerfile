@@ -4,13 +4,22 @@ LABEL org.opencontainers.image.source="https://github.com/KrX3D/uup-dump-get-lat
 LABEL org.opencontainers.image.description="Downloads and creates Windows ISO files using UUP dump"
 LABEL org.opencontainers.image.licenses="MIT"
 
+# qemu-system-x86 + ntfs-3g + fuse + xorriso: EXPERIMENTAL WinPE/DISM update
+# integration (see winpe-updates.ps1). ovmf is unused by default (legacy BIOS
+# boot via built-in SeaBIOS is used instead) but kept available in case the
+# ISO's boot catalog turns out to need -bios OVMF.fd for UEFI boot.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
     wimtools \
     genisoimage \
+    xorriso \
     p7zip-full \
     cabextract \
     chntpw \
+    ntfs-3g \
+    fuse \
+    qemu-system-x86 \
+    ovmf \
     curl \
     wget \
     bc \
@@ -25,9 +34,10 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-ins
 COPY converter-cache/ /opt/uup-converter/
 RUN chmod +x /opt/uup-converter/convert.sh /opt/uup-converter/convert_ve_plugin
 
-COPY entrypoint.sh /entrypoint.sh
-COPY build-iso.ps1 /build-iso.ps1
-COPY web-ui.ps1    /web-ui.ps1
+COPY entrypoint.sh      /entrypoint.sh
+COPY build-iso.ps1      /build-iso.ps1
+COPY web-ui.ps1         /web-ui.ps1
+COPY winpe-updates.ps1  /winpe-updates.ps1
 RUN chmod +x /entrypoint.sh /build-iso.ps1
 
 VOLUME ["/output", "/logs", "/config"]
@@ -42,7 +52,8 @@ ENV WINDOWS_TARGET="windows-11" \
     PUID="99" \
     PGID="100" \
     MODE="auto" \
-    WEB_PORT="8080"
+    WEB_PORT="8080" \
+    EXPERIMENTAL_WINPE_UPDATES="0"
 
 EXPOSE 8080
 

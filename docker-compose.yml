@@ -20,3 +20,22 @@ services:
     restart: "no"
     # Use restart: unless-stopped when running in web mode:
     # restart: unless-stopped
+
+    # ── EXPERIMENTAL (branch: experimental/winpe-dism-updates) ─────────────
+    # Real DISM update integration via a throwaway WinPE VM. Not on main,
+    # not enabled by default. To try it, see EXPERIMENTAL.md, then:
+    #   1. image: ghcr.io/krx3d/uup-dump-get-latest-windows-iso:experimental-winpe-dism-updates
+    #   2. environment: add EXPERIMENTAL_WINPE_UPDATES=1
+    #   3. devices:
+    #        - /dev/kvm
+    #        - /dev/fuse
+    #      cap_add:
+    #        - SYS_ADMIN
+    #   4. Confirm the Docker host itself has KVM available (Unraid: VM
+    #      Manager enabled in Settings). Without it this step is skipped
+    #      and the ISO is built exactly as on main (just unpatched).
+    # devices:
+    #   - /dev/kvm
+    #   - /dev/fuse
+    # cap_add:
+    #   - SYS_ADMIN

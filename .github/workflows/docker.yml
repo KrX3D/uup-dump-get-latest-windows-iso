@@ -3,12 +3,16 @@ name: Build and Push Docker Image
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # experimental/winpe-dism-updates: pushed here so it can be pulled on
+    # Unraid for testing without merging to main. Remove this branch name
+    # once the experiment is either merged or abandoned.
+    branches: [main, experimental/winpe-dism-updates]
     tags: ['v*.*.*']
     paths-ignore:
       - 'LICENSE'
       - 'README.md'
       - 'unraid-template.xml'
+      - 'unraid-template.experimental.xml'
       - 'docker-compose.yml'
 
 env:
@@ -46,6 +50,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch,enable=${{ github.ref_name != 'main' }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

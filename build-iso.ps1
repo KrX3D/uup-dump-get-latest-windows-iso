@@ -18,7 +18,10 @@ param(
     [string]$BuildId         = '',
     # Output file options (can be toggled in the web UI)
     [bool]$WriteChecksum     = $true,
-    [bool]$WriteMetadata     = $true
+    [bool]$WriteMetadata     = $true,
+    # EXPERIMENTAL — see winpe-updates.ps1. Boots the ISO's own boot.wim under
+    # QEMU/KVM to run real DISM update integration. Off by default.
+    [bool]$EnableWinPeUpdates = $false
 )
 
 Set-StrictMode -Version Latest
@@ -32,6 +35,13 @@ if (-not $LogDirectory) { $LogDirectory = $OutputDirectory }
 # inheriting MODE=web from Docker's environment and trying to re-bind port 8080.
 if (-not $PSBoundParameters.ContainsKey('Mode')    -and $env:MODE -eq 'web') { $Mode    = 'web' }
 if (-not $PSBoundParameters.ContainsKey('WebPort') -and $env:WEB_PORT)       { $WebPort = [int]$env:WEB_PORT }
+if (-not $PSBoundParameters.ContainsKey('EnableWinPeUpdates') -and $env:EXPERIMENTAL_WINPE_UPDATES -eq '1') { $EnableWinPeUpdates = $true }
+
+# EXPERIMENTAL — see winpe-updates.ps1 header. Only defines functions; never
+# invoked unless $EnableWinPeUpdates is true further down.
+if (Test-Path (Join-Path $PSScriptRoot 'winpe-updates.ps1')) {
+    . (Join-Path $PSScriptRoot 'winpe-updates.ps1')
+}
 
 $script:WorkDirectory    = $WorkDirectory
 $script:buildDirectory   = $null
@@ -607,6 +617,19 @@ if (-not $sourceIso) {
     throw "No ISO found in $buildDirectory after conversion"
 }
 Write-Log "ISO created: $($sourceIso.Name)  ($([math]::Round($sourceIso.Length / 1GB, 2)) GB)"
+
+# ── EXPERIMENTAL: WinPE/DISM update integration ───────────────────────────────
+# See winpe-updates.ps1 header. Only runs when explicitly enabled AND the
+# user actually asked for updates via ConvertConfig. Any failure here falls
+# back to the ISO produced above — this step must never fail the build.
+if ($EnableWinPeUpdates -and $ccMap.AddUpdates) {
+    $patchedIsoPath = Invoke-WinPeUpdateIntegration -IsoPath $sourceIso.FullName `
+        -BuildDirectory $buildDirectory -ResetBase ([bool]$ccMap.ResetBase)
+    if ($patchedIsoPath) {
+        $sourceIso = Get-Item $patchedIsoPath
+        Write-Log "ISO after WinPE update integration: $($sourceIso.Name)  ($([math]::Round($sourceIso.Length / 1GB, 2)) GB)"
+    }
+}
 
 # ── Checksum ──────────────────────────────────────────────────────────────────
 
