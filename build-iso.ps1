@@ -347,6 +347,16 @@ New-Item -ItemType Directory -Force $buildDirectory | Out-Null
 
 $zipPath = "$buildDirectory.zip"
 
+function Get-DownloadFileCounts {
+    param([string]$Dir)
+    $uupsDir = Join-Path $Dir 'UUPs'
+    if (-not (Test-Path $uupsDir)) { return $null }
+    $doneFiles = @(Get-ChildItem $uupsDir -File -EA SilentlyContinue | Where-Object Extension -ne '.aria2')
+    $a2f       = Get-ChildItem $Dir -Filter 'aria2_script.*.txt' -EA SilentlyContinue | Select-Object -First 1
+    $total     = if ($a2f) { (Select-String -Path $a2f.FullName -Pattern '^  out=').Count } else { '?' }
+    [PSCustomObject]@{ Done = $doneFiles.Count; Total = $total; Bytes = ($doneFiles | Measure-Object Length -Sum).Sum }
+}
+
 # ── Download, patch, and run — with retry on URL expiry ──────────────────────
 # UUP download URLs contain a P1= expiry timestamp (~22 min window). On Unraid,
 # CDN stalling means some files exhaust retries before completing. On failure we
@@ -389,8 +399,24 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     }
     Set-Content -Encoding ascii -Path $configPath -Value $cfgLines
     if ($attempt -eq 1) {
-        $ccSummary = ($ccMap.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Key)=$([int][bool]$_.Value)" }) -join ' '
+        $ccLabels = [ordered]@{
+            AutoExit   = 'Auto-exit when done'
+            AddUpdates = 'Include Windows Updates'
+            NetFx3     = '.NET Framework 3.5'
+            ResetBase  = 'Reset component base'
+            SkipWinRE  = 'Skip Windows RE'
+            CustomList = 'Use custom apps list'
+        }
+        $ccSummary = ($ccLabels.Keys | ForEach-Object {
+            "$($ccLabels[$_]): $(if ([bool]$ccMap[$_]) { 'On' } else { 'Off' })"
+        }) -join ' | '
         Write-Log "ConvertConfig.ini: $ccSummary"
+        if ($ccMap.AddUpdates -or $ccMap.ResetBase) {
+            Write-Log ("'Include Windows Updates' / 'Reset component base' are written to ConvertConfig.ini " +
+                "but have no effect on this build: the Linux/wimlib converter used here cannot perform DISM-level " +
+                "package servicing, so the ISO will stay at the base UBR of the selected build. " +
+                "See https://git.uupdump.net/uup-dump/misc (FAQ: Linux/macOS scripts do not support installing updates).") 'WARN'
+        }
     }
 
     # ── Configure CustomAppsList.txt ───────────────────────────────────────────
@@ -521,15 +547,33 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     }
     Write-Log $startMsg
 
+    # Precede aria2's periodic "*** Download Progress Summary" block with a blank
+    # line and a running done/total file count, so it's readable in the raw log
+    # (not just the GUI, which already inserts a blank line client-side).
+    $progressStage = {
+        if ($_ -match '^\s*\*\*\*\s*Download Progress Summary') {
+            ''
+            $c = Get-DownloadFileCounts $buildDirectory
+            if ($c) {
+                $ts = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                "[$ts] [INFO] Download progress: $($c.Done)/$($c.Total) files complete"
+            }
+        }
+        $_
+    }
+
     Push-Location $buildDirectory
     try {
         # Pipe bash output to per-run log; also to current-build.log when the web UI is active
         if ($script:CurrentBuildLog) {
             & bash ./uup_download_linux.sh 2>&1 |
+                ForEach-Object $progressStage |
                 Tee-Object -Append -FilePath $script:RunLogFile |
                 Tee-Object -Append -FilePath $script:CurrentBuildLog
         } else {
-            & bash ./uup_download_linux.sh 2>&1 | Tee-Object -Append -FilePath $script:RunLogFile
+            & bash ./uup_download_linux.sh 2>&1 |
+                ForEach-Object $progressStage |
+                Tee-Object -Append -FilePath $script:RunLogFile
         }
         $_exitCode = $LASTEXITCODE
     } finally {
@@ -537,18 +581,12 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     }
 
     # ── Download summary ───────────────────────────────────────────────────────
-    $_uupsDir = Join-Path $buildDirectory 'UUPs'
-    if (Test-Path $_uupsDir) {
-        $_doneFiles = @(Get-ChildItem $_uupsDir -File -EA SilentlyContinue |
-                        Where-Object Extension -ne '.aria2')
-        $_bytes     = ($_doneFiles | Measure-Object Length -Sum).Sum
-        $_szStr     = if ($_bytes -ge 1GB)   { '{0:F2} GB' -f ($_bytes / 1GB)  }
-                      elseif ($_bytes -ge 1MB) { '{0:F1} MB' -f ($_bytes / 1MB)  }
-                      else                     { '{0} KB'    -f [int]($_bytes / 1KB) }
-        $_a2f   = Get-ChildItem $buildDirectory -Filter 'aria2_script.*.txt' -EA SilentlyContinue |
-                  Select-Object -First 1
-        $_total = if ($_a2f) { (Select-String -Path $_a2f.FullName -Pattern '^  out=').Count } else { '?' }
-        Write-Log "Download: $($_doneFiles.Count)/$_total files complete | $_szStr on disk"
+    $_counts = Get-DownloadFileCounts $buildDirectory
+    if ($_counts) {
+        $_szStr = if ($_counts.Bytes -ge 1GB)   { '{0:F2} GB' -f ($_counts.Bytes / 1GB) }
+                  elseif ($_counts.Bytes -ge 1MB) { '{0:F1} MB' -f ($_counts.Bytes / 1MB) }
+                  else                            { '{0} KB'    -f [int]($_counts.Bytes / 1KB) }
+        Write-Log "Download: $($_counts.Done)/$($_counts.Total) files complete | $_szStr on disk"
     }
 
     if ($_exitCode -eq 0) { break }
