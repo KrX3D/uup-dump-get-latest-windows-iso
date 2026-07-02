@@ -140,7 +140,7 @@ function Send-WebConfig {
     }
     Write-WebJson $res @{
         windowsTarget = 'windows-11'; ring = 'RETAIL'; language = 'de-de'; edition = 'Professional'
-        convertConfig = @{ AutoExit=$true; AddUpdates=$false; NetFx3=$true; ResetBase=$true; SkipWinRE=$true; CustomList=$true }
+        convertConfig = @{ AutoExit=$true; AddUpdates=$false; NetFx3=$true; ResetBase=$true; SkipWinRE=$false; UpdtBootFiles=$false; CustomList=$true }
         writeChecksum = $true; writeMetadata = $true
     }
 }
@@ -577,7 +577,8 @@ const COPTS = [
   {k:"AddUpdates", d:false, l:"Include Windows Updates",  x:"Bundle the latest cumulative update into the ISO"},
   {k:"NetFx3",     d:true,  l:".NET Framework 3.5",       x:"Pre-install .NET Framework 3.x (required by some older software)"},
   {k:"ResetBase",  d:true,  l:"Reset component base",     x:"Shrink WinSxS by removing superseded components"},
-  {k:"SkipWinRE",  d:true,  l:"Skip Windows RE",          x:"Omit recovery environment — saves ~500 MB on the ISO"},
+  {k:"SkipWinRE",  d:false, l:"Skip Windows RE (forced off)", x:"Disabled server-side: omitting WinRE breaks Windows Setup's newer install UI at ~11%. This option has no effect."},
+  {k:"UpdtBootFiles", d:false, l:"Update boot files", x:"Refresh bootmgr/boot-critical files during conversion"},
   {k:"CustomList", d:true,  l:"Use custom apps list",     x:"Apply the app selection to the right instead of the default list"},
 ];
 const APPS = [
@@ -626,12 +627,12 @@ const APPS = [
 
 let selBuildId=null, selBuildLabel=null, logOff=0, curStatus="idle", polling=false;
 
-window.addEventListener("DOMContentLoaded",()=>{
+window.addEventListener("DOMContentLoaded",async()=>{
   document.getElementById("convOpts").innerHTML = COPTS.map(o=>
     `<label class="cb"><input type="checkbox" id="c_${o.k}"${o.d?" checked":""}><span><span class="cbl">${o.l}</span><span class="cbd">${o.x}</span></span></label>`
   ).join("");
   renderApps();
-  loadConfig();
+  await loadConfig();
   loadOutputs();
   document.getElementById("bSelect").addEventListener("change",function(){
     selBuildId=this.value||null;
@@ -640,6 +641,8 @@ window.addEventListener("DOMContentLoaded",()=>{
     if(selBuildId){p.style.display="";p.textContent="Pinned: "+selBuildLabel;}
     else p.style.display="none";
   });
+  document.getElementById("winTarget").addEventListener("change",fetchBuilds);
+  fetchBuilds();
   poll();
   setInterval(poll,2000);
 });
@@ -712,9 +715,16 @@ async function fetchBuilds(){
     const data=await res.json();
     if(!res.ok||data.error){toast("Fetch error: "+(data.error||"Request failed"),"var(--red)");return;}
     if(!data.length){toast("No builds found for this OS","var(--yellow)");return;}
-    const prev=selBuildId;
-    sel.innerHTML=`<option value="">Latest (auto)</option>`+
-      data.map(b=>`<option value="${b.id}">${b.build} - ${b.title}</option>`).join("");
+    const prev=selBuildId,prevLabel=selBuildLabel;
+    let html=`<option value="">Latest (auto)</option>`+
+      data.map(b=>`<option value="${b.id}">${b.title}</option>`).join("");
+    // Keep a pinned build selected even if it fell out of the fetched list
+    // (e.g. an older build no longer in the top 25) instead of silently
+    // reverting the pin to "Latest".
+    if(prev&&!data.find(b=>b.id===prev)){
+      html+=`<option value="${prev}">${prevLabel||prev} (pinned, not in latest list)</option>`;
+    }
+    sel.innerHTML=html;
     sel.value=prev||"";
     selBuildId=sel.value||null;
     selBuildLabel=selBuildId?sel.options[sel.selectedIndex].text:null;

@@ -196,13 +196,42 @@ function New-QueryString([hashtable]$params) {
     }) -join '&'
 }
 
+# Fallback for when UUP dump's own API doesn't return a title (seen on some
+# pinned/very new builds) — maps known build-major numbers to their marketing
+# version name so the log still reads "Windows 11, version 26H1 (28000.2269)"
+# instead of the meaningless "Build 28000.2269".
+# Source: https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information
+function Get-FriendlyBuildTitle([string]$WindowsTarget, [string]$Build) {
+    $buildMajor = ($Build -split '\.')[0]
+    $versionMap = @{
+        'windows-11' = @{
+            '22000' = '21H2'; '22621' = '22H2'; '22631' = '23H2'
+            '26100' = '24H2'; '26200' = '25H2'; '28000' = '26H1'
+        }
+        'windows-10' = @{
+            '19041' = '2004'; '19042' = '20H2'; '19043' = '21H1'; '19044' = '21H2'; '19045' = '22H2'
+        }
+    }
+    $osName = switch ($WindowsTarget) {
+        'windows-10'   { 'Windows 10' }
+        'windows-2022' { 'Windows Server 2022' }
+        default        { 'Windows 11' }
+    }
+    $version = $null
+    if ($versionMap.ContainsKey($WindowsTarget) -and $versionMap[$WindowsTarget].ContainsKey($buildMajor)) {
+        $version = $versionMap[$WindowsTarget][$buildMajor]
+    }
+    if ($version) { return "$osName, version $version ($Build)" }
+    return "Build $Build"
+}
+
 function Get-UupDumpIso([string]$name, [hashtable]$target, [string]$wantRing, [string]$specificBuildId = '') {
     if ($specificBuildId) {
         Write-Log "Using pinned build ID: $specificBuildId"
         $r     = Invoke-RestMethod -Method Get -Uri 'https://api.uupdump.net/listlangs.php' -Body @{ id = $specificBuildId }
         $build = $r.response.updateInfo.build
         $ring  = if ($r.response.updateInfo.ring)  { $r.response.updateInfo.ring }  else { $wantRing }
-        $title = if ($r.response.updateInfo.title) { $r.response.updateInfo.title } else { "Build $build" }
+        $title = if ($r.response.updateInfo.title) { $r.response.updateInfo.title } else { Get-FriendlyBuildTitle $name $build }
         if ($r.response.langFancyNames.PSObject.Properties.Name -notcontains $Language) {
             Write-Log "Pinned build $specificBuildId does not have language '$Language'" 'ERROR'
             return $null
@@ -388,10 +417,21 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 
     $configPath = Join-Path $buildDirectory 'ConvertConfig.ini'
     $cc = if ($settingsData -and $settingsData.convertConfig) { $settingsData.convertConfig } else {
-        [PSCustomObject]@{ AutoExit=$true; CustomList=$true; NetFx3=$true; ResetBase=$true; SkipWinRE=$true; AddUpdates=$false }
+        [PSCustomObject]@{ AutoExit=$true; CustomList=$true; NetFx3=$true; ResetBase=$true; SkipWinRE=$false; AddUpdates=$false; UpdtBootFiles=$false }
     }
     $ccMap = @{ AutoExit=$cc.AutoExit; CustomList=$cc.CustomList; NetFx3=$cc.NetFx3
-                ResetBase=$cc.ResetBase; SkipWinRE=$cc.SkipWinRE; AddUpdates=$cc.AddUpdates }
+                ResetBase=$cc.ResetBase; SkipWinRE=$cc.SkipWinRE; AddUpdates=$cc.AddUpdates
+                UpdtBootFiles=[bool]($cc.PSObject.Properties.Name -contains 'UpdtBootFiles' -and $cc.UpdtBootFiles) }
+
+    # Skipping WinRE breaks Windows Setup's newer install UI partway through
+    # (fails around 11%). Force it on regardless of what was requested — no
+    # confirmation, just a log line so it's not a silent override.
+    if ([bool]$ccMap.SkipWinRE) {
+        Write-Log ("'Skip Windows RE' was selected, but omitting WinRE causes Windows Setup's newer install UI " +
+            "to fail partway through (around 11%). Forcing WinRE to stay included regardless of this setting.") 'WARN'
+    }
+    $ccMap.SkipWinRE = $false
+
     $cfgLines = Get-Content $configPath
     foreach ($key in $ccMap.Keys) {
         $val      = [int][bool]$ccMap[$key]
@@ -400,12 +440,13 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Set-Content -Encoding ascii -Path $configPath -Value $cfgLines
     if ($attempt -eq 1) {
         $ccLabels = [ordered]@{
-            AutoExit   = 'Auto-exit when done'
-            AddUpdates = 'Include Windows Updates'
-            NetFx3     = '.NET Framework 3.5'
-            ResetBase  = 'Reset component base'
-            SkipWinRE  = 'Skip Windows RE'
-            CustomList = 'Use custom apps list'
+            AutoExit      = 'Auto-exit when done'
+            AddUpdates    = 'Include Windows Updates'
+            NetFx3        = '.NET Framework 3.5'
+            ResetBase     = 'Reset component base'
+            SkipWinRE     = 'Skip Windows RE'
+            UpdtBootFiles = 'Update boot files'
+            CustomList    = 'Use custom apps list'
         }
         $ccSummary = ($ccLabels.Keys | ForEach-Object {
             "$($ccLabels[$_]): $(if ([bool]$ccMap[$_]) { 'On' } else { 'Off' })"
